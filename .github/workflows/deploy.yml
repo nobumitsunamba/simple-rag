@@ -54,7 +54,8 @@ jobs:
               --service-name $SERVICE_NAME \
               --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsTaskExecutionRole \
               --infrastructure-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsInfrastructureRoleForExpressServices \
-              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"}]}" \
+              --task-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsTaskRole-SimpleRAG \
+              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"},{\"name\":\"AWS_REGION\",\"value\":\"ap-northeast-1\"}]}" \
               --cpu 1024 \
               --memory 2048 \
               --health-check-path "/" \
@@ -63,6 +64,6 @@ jobs:
             echo "Updating existing ECS Express Mode service..."
             aws ecs update-express-gateway-service \
               --service-arn arn:aws:ecs:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:service/default/$SERVICE_NAME \
-              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"}]}" \
+              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"},{\"name\":\"AWS_REGION\",\"value\":\"ap-northeast-1\"}]}" \
               --monitor-resources
           fi

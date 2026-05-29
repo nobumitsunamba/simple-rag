@@ -1,89 +1,89 @@
-"""Vector store module using pure Python TF-IDF for similarity search."""
+"""Vector store module using Amazon Bedrock Titan Embeddings for semantic search."""
 
+import json
 import math
-import re
-from collections import Counter
+import os
 
-
-def _tokenize(text: str) -> list[str]:
-    """Simple tokenizer: split on non-alphanumeric, keep Japanese characters."""
-    # Split into character n-grams for better Japanese support
-    tokens = re.findall(r'\w+', text.lower())
-    # Also add character bigrams for Japanese text
-    chars = re.sub(r'\s+', '', text.lower())
-    bigrams = [chars[i:i+2] for i in range(len(chars) - 1)]
-    return tokens + bigrams
+import boto3
 
 
 class VectorStore:
-    """Pure Python TF-IDF based document search store."""
+    """Semantic search store using Amazon Bedrock Titan Text Embeddings V2."""
 
-    def __init__(self):
+    def __init__(self, region: str = None, dimensions: int = 256):
+        self.region = region or os.getenv("AWS_REGION", "ap-northeast-1")
+        self.dimensions = dimensions
+        self.client = boto3.client("bedrock-runtime", region_name=self.region)
         self.chunks: list[str] = []
         self.metadata: list[dict] = []
-        self._doc_freqs: Counter = Counter()
-        self._chunk_tokens: list[Counter] = []
+        self.embeddings: list[list[float]] = []
+
+    def _get_embedding(self, text: str) -> list[float]:
+        """Get embedding vector from Titan Embeddings V2."""
+        body = json.dumps({
+            "inputText": text[:8000],  # Titan V2 max input
+            "dimensions": self.dimensions,
+        })
+        response = self.client.invoke_model(
+            modelId="amazon.titan-embed-text-v2:0",
+            contentType="application/json",
+            accept="application/json",
+            body=body,
+        )
+        result = json.loads(response["body"].read())
+        return result["embedding"]
+
+    def _get_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
+        """Get embeddings for multiple texts."""
+        embeddings = []
+        for text in texts:
+            embedding = self._get_embedding(text)
+            embeddings.append(embedding)
+        return embeddings
+
+    def _cosine_similarity(self, vec_a: list[float], vec_b: list[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        dot = sum(a * b for a, b in zip(vec_a, vec_b))
+        mag_a = math.sqrt(sum(a * a for a in vec_a))
+        mag_b = math.sqrt(sum(b * b for b in vec_b))
+        if mag_a == 0 or mag_b == 0:
+            return 0.0
+        return dot / (mag_a * mag_b)
 
     def add_documents(self, chunks: list[str], source_filename: str) -> int:
-        """Add document chunks to the store."""
+        """Add document chunks to the store.
+
+        Returns the number of chunks added.
+        """
         if not chunks:
             return 0
 
-        for chunk in chunks:
-            tokens = _tokenize(chunk)
-            token_counts = Counter(tokens)
-            self._chunk_tokens.append(token_counts)
-            # Update document frequency (each unique token in this chunk)
-            for token in set(tokens):
-                self._doc_freqs[token] += 1
+        # Get embeddings for all chunks
+        new_embeddings = self._get_embeddings_batch(chunks)
 
         self.chunks.extend(chunks)
+        self.embeddings.extend(new_embeddings)
         self.metadata.extend(
             [{"source": source_filename, "chunk_index": i} for i in range(len(chunks))]
         )
 
         return len(chunks)
 
-    def _tfidf_vector(self, token_counts: Counter) -> dict[str, float]:
-        """Compute TF-IDF vector for a token count."""
-        n_docs = len(self.chunks)
-        vector = {}
-        total_tokens = sum(token_counts.values())
-        if total_tokens == 0:
-            return vector
-        for token, count in token_counts.items():
-            tf = count / total_tokens
-            df = self._doc_freqs.get(token, 0)
-            idf = math.log((n_docs + 1) / (df + 1)) + 1
-            vector[token] = tf * idf
-        return vector
-
-    def _cosine_similarity(self, vec_a: dict[str, float], vec_b: dict[str, float]) -> float:
-        """Compute cosine similarity between two sparse vectors."""
-        # Dot product
-        common_keys = set(vec_a.keys()) & set(vec_b.keys())
-        if not common_keys:
-            return 0.0
-        dot = sum(vec_a[k] * vec_b[k] for k in common_keys)
-        # Magnitudes
-        mag_a = math.sqrt(sum(v * v for v in vec_a.values()))
-        mag_b = math.sqrt(sum(v * v for v in vec_b.values()))
-        if mag_a == 0 or mag_b == 0:
-            return 0.0
-        return dot / (mag_a * mag_b)
-
     def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search for the most relevant chunks given a query."""
+        """Search for the most relevant chunks given a query.
+
+        Returns a list of dicts with 'text', 'source', and 'score'.
+        """
         if not self.chunks:
             return []
 
-        query_tokens = Counter(_tokenize(query))
-        query_vec = self._tfidf_vector(query_tokens)
+        # Get query embedding
+        query_embedding = self._get_embedding(query)
 
+        # Calculate similarities
         scores = []
-        for i, chunk_tokens in enumerate(self._chunk_tokens):
-            chunk_vec = self._tfidf_vector(chunk_tokens)
-            score = self._cosine_similarity(query_vec, chunk_vec)
+        for i, chunk_embedding in enumerate(self.embeddings):
+            score = self._cosine_similarity(query_embedding, chunk_embedding)
             scores.append((score, i))
 
         # Sort by score descending
@@ -115,5 +115,4 @@ class VectorStore:
         """Clear all data from the store."""
         self.chunks = []
         self.metadata = []
-        self._doc_freqs = Counter()
-        self._chunk_tokens = []
+        self.embeddings = []
