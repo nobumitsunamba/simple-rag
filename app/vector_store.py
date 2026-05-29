@@ -28,7 +28,7 @@ class VectorStore:
             "dimensions": self.dimensions,
         })
 
-        max_retries = 8
+        max_retries = 10
         for attempt in range(max_retries):
             try:
                 response = self.client.invoke_model(
@@ -39,15 +39,18 @@ class VectorStore:
                 )
                 result = json.loads(response["body"].read())
                 return result["embedding"]
-            except self.client.exceptions.ThrottlingException:
-                if attempt < max_retries - 1:
-                    wait = 2 ** attempt * 0.5  # 0.5, 1, 2, 4, 8, 16, 32, 64
-                    time.sleep(wait)
+            except Exception as e:
+                if "ThrottlingException" in str(type(e).__name__) or "Throttling" in str(e):
+                    if attempt < max_retries - 1:
+                        wait = 2 ** attempt * 1.0  # 1, 2, 4, 8, 16, 32...
+                        time.sleep(wait)
+                    else:
+                        raise
                 else:
                     raise
 
-    def _get_embeddings_batch(self, texts: list[str], max_workers: int = 4) -> list[list[float]]:
-        """Get embeddings for multiple texts using parallel requests."""
+    def _get_embeddings_batch(self, texts: list[str], max_workers: int = 2) -> list[list[float]]:
+        """Get embeddings for multiple texts with limited concurrency."""
         embeddings = [None] * len(texts)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:

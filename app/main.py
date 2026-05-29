@@ -86,13 +86,14 @@ class ProcessingStatusResponse(BaseModel):
 
 def _process_document_background(filename: str, text: str):
     """Process document in background thread."""
+    import time
     global processing_status
     try:
         chunks = split_text(text)
         processing_status[filename]["message"] = f"埋め込み生成中... (0/{len(chunks)}チャンク)"
 
-        # Process in smaller batches to show progress
-        batch_size = 50
+        # Process in smaller batches to show progress and avoid throttling
+        batch_size = 20
         total_added = 0
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i:i + batch_size]
