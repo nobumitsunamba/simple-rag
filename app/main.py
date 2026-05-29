@@ -57,11 +57,13 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     question: str
+    conversation_id: str = "default"
 
 
 class ChatResponse(BaseModel):
     answer: str
     sources: list[str]
+    conversation_id: str
 
 
 class UploadResponse(BaseModel):
@@ -193,8 +195,8 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="質問を入力してください。")
 
     try:
-        result = rag_engine.generate_answer(request.question)
-        return ChatResponse(answer=result["answer"], sources=result["sources"])
+        result = rag_engine.generate_answer(request.question, request.conversation_id)
+        return ChatResponse(answer=result["answer"], sources=result["sources"], conversation_id=result["conversation_id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"回答生成中にエラーが発生しました: {str(e)}")
 

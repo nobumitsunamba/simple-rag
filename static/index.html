@@ -419,6 +419,7 @@
         const statsBadge = document.getElementById('stats-badge');
 
         let documents = [];
+        let conversationId = 'conv-' + Date.now();
 
         // Upload area events
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -540,6 +541,7 @@
             try {
                 await fetch('/api/clear', { method: 'POST' });
                 documents = [];
+                conversationId = 'conv-' + Date.now();
                 renderDocuments();
                 addMessage('system', 'すべてのドキュメントデータを削除しました。');
             } catch (err) {
@@ -570,7 +572,7 @@
                 const res = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question }),
+                    body: JSON.stringify({ question, conversation_id: conversationId }),
                 });
 
                 if (!res.ok) {
