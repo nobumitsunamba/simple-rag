@@ -20,21 +20,33 @@ class VectorStore:
         self.embeddings: list[list[float]] = []
 
     def _get_embedding(self, text: str) -> list[float]:
-        """Get embedding vector from Titan Embeddings V2."""
+        """Get embedding vector from Titan Embeddings V2 with retry."""
+        import time
+
         body = json.dumps({
             "inputText": text[:8000],  # Titan V2 max input
             "dimensions": self.dimensions,
         })
-        response = self.client.invoke_model(
-            modelId="amazon.titan-embed-text-v2:0",
-            contentType="application/json",
-            accept="application/json",
-            body=body,
-        )
-        result = json.loads(response["body"].read())
-        return result["embedding"]
 
-    def _get_embeddings_batch(self, texts: list[str], max_workers: int = 10) -> list[list[float]]:
+        max_retries = 8
+        for attempt in range(max_retries):
+            try:
+                response = self.client.invoke_model(
+                    modelId="amazon.titan-embed-text-v2:0",
+                    contentType="application/json",
+                    accept="application/json",
+                    body=body,
+                )
+                result = json.loads(response["body"].read())
+                return result["embedding"]
+            except self.client.exceptions.ThrottlingException:
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt * 0.5  # 0.5, 1, 2, 4, 8, 16, 32, 64
+                    time.sleep(wait)
+                else:
+                    raise
+
+    def _get_embeddings_batch(self, texts: list[str], max_workers: int = 4) -> list[list[float]]:
         """Get embeddings for multiple texts using parallel requests."""
         embeddings = [None] * len(texts)
 
