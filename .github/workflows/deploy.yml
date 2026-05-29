@@ -55,8 +55,8 @@ jobs:
               --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsTaskExecutionRole \
               --infrastructure-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsInfrastructureRoleForExpressServices \
               --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"}]}" \
-              --cpu 1 \
-              --memory 2 \
+              --cpu 1024 \
+              --memory 2048 \
               --health-check-path "/" \
               --monitor-resources
           else
