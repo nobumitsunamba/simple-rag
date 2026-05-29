@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Simple RAG - ドキュメントQ&Aアプリ
 
 PDF・Wordファイルをアップロードし、その内容に基づいてチャット形式で質問に答えるRAG（Retrieval-Augmented Generation）アプリケーションです。
@@ -100,3 +101,6 @@ aws apprunner describe-service --service-arn $arn --region ap-northeast-1 --quer
 - アップロードしたデータはメモリ上に保持されるため、サーバー再起動で消えます
 - 大量のドキュメントを扱う場合はメモリ使用量に注意してください
 - App Runner のインスタンスは 1 vCPU / 2GB メモリで構成されています
+=======
+# simple-rag
+>>>>>>> 4f7dc1a29e24d7545598f154cee45dcf8303d0b0
