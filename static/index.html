@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple RAG - ドキュメントQ&A</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+            background: #f5f7fa;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: #1a1a2e;
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        header h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .stats-badge {
+            background: #16213e;
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            color: #a0aec0;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .sidebar h2 {
+            font-size: 0.9rem;
+            color: #4a5568;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f7fafc;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #ebf4ff;
+        }
+
+        .upload-area svg {
+            width: 40px;
+            height: 40px;
+            color: #a0aec0;
+            margin-bottom: 8px;
+        }
+
+        .upload-area p {
+            font-size: 0.85rem;
+            color: #718096;
+        }
+
+        .upload-area .formats {
+            font-size: 0.75rem;
+            color: #a0aec0;
+            margin-top: 4px;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .document-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .document-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .document-item .doc-icon {
+            color: #667eea;
+            flex-shrink: 0;
+        }
+
+        .document-item .doc-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #4a5568;
+        }
+
+        .document-item .doc-chunks {
+            font-size: 0.75rem;
+            color: #a0aec0;
+            flex-shrink: 0;
+        }
+
+        .clear-btn {
+            margin-top: 12px;
+            padding: 8px 16px;
+            background: #fed7d7;
+            color: #c53030;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .clear-btn:hover {
+            background: #feb2b2;
+        }
+
+        /* Chat area */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: white;
+            color: #2d3748;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .message.assistant .sources {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 0.75rem;
+            color: #718096;
+        }
+
+        .message.error {
+            align-self: center;
+            background: #fed7d7;
+            color: #c53030;
+            font-size: 0.85rem;
+        }
+
+        .message.system {
+            align-self: center;
+            background: #e2e8f0;
+            color: #4a5568;
+            font-size: 0.85rem;
+            text-align: center;
+        }
+
+        .typing-indicator {
+            align-self: flex-start;
+            padding: 12px 16px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            display: none;
+        }
+
+        .typing-indicator.visible {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #a0aec0;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0.6); }
+            40% { transform: scale(1); }
+        }
+
+        /* Input area */
+        .chat-input-area {
+            padding: 16px 24px;
+            background: white;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            gap: 12px;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 24px;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input-area input:focus {
+            border-color: #667eea;
+        }
+
+        .chat-input-area button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 24px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .chat-input-area button:hover {
+            background: #5a67d8;
+        }
+
+        .chat-input-area button:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        /* Upload progress */
+        .upload-progress {
+            display: none;
+            margin-bottom: 12px;
+        }
+
+        .upload-progress.visible {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: #667eea;
+            width: 0%;
+            transition: width 0.3s;
+            animation: indeterminate 1.5s infinite;
+        }
+
+        @keyframes indeterminate {
+            0% { transform: translateX(-100%); width: 50%; }
+            100% { transform: translateX(200%); width: 50%; }
+        }
+
+        .upload-status {
+            font-size: 0.8rem;
+            color: #718096;
+            margin-top: 6px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                max-height: 200px;
+                border-right: none;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            .message {
+                max-width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>📚 Simple RAG</h1>
+        <div class="header-actions">
+            <span class="stats-badge" id="stats-badge">ドキュメント: 0件</span>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <aside class="sidebar">
+            <h2>ドキュメント管理</h2>
+
+            <div class="upload-area" id="upload-area">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16v-8m0 0l-3 3m3-3l3 3M3 16v2a2 2 0 002 2h14a2 2 0 002-2v-2" />
+                </svg>
+                <p>クリックまたはドラッグ&ドロップ</p>
+                <p class="formats">PDF / Word (.docx)</p>
+            </div>
+            <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc" />
+
+            <div class="upload-progress" id="upload-progress">
+                <div class="progress-bar"><div class="progress-bar-fill"></div></div>
+                <div class="upload-status" id="upload-status">アップロード中...</div>
+            </div>
+
+            <div class="document-list" id="document-list"></div>
+
+            <button class="clear-btn" id="clear-btn" style="display:none;">すべて削除</button>
+        </aside>
+
+        <main class="chat-container">
+            <div class="chat-messages" id="chat-messages">
+                <div class="message system">
+                    ドキュメントをアップロードして、質問してください。
+                </div>
+            </div>
+
+            <div class="typing-indicator" id="typing-indicator">
+                <span></span><span></span><span></span>
+            </div>
+
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" placeholder="質問を入力..." autocomplete="off" />
+                <button id="send-btn">送信</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const uploadProgress = document.getElementById('upload-progress');
+        const uploadStatus = document.getElementById('upload-status');
+        const documentList = document.getElementById('document-list');
+        const clearBtn = document.getElementById('clear-btn');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+        const statsBadge = document.getElementById('stats-badge');
+
+        let documents = [];
+
+        // Upload area events
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+            fileInput.value = '';
+        });
+
+        async function handleFiles(files) {
+            for (const file of files) {
+                await uploadFile(file);
+            }
+        }
+
+        async function uploadFile(file) {
+            uploadProgress.classList.add('visible');
+            uploadStatus.textContent = `${file.name} をアップロード中...`;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'アップロードに失敗しました');
+                }
+
+                const data = await res.json();
+                documents.push({ name: data.filename, chunks: data.chunks_added });
+                renderDocuments();
+                addMessage('system', data.message);
+            } catch (err) {
+                addMessage('error', `エラー: ${err.message}`);
+            } finally {
+                uploadProgress.classList.remove('visible');
+            }
+        }
+
+        function renderDocuments() {
+            documentList.innerHTML = documents.map(doc => `
+                <div class="document-item">
+                    <span class="doc-icon">📄</span>
+                    <span class="doc-name" title="${doc.name}">${doc.name}</span>
+                    <span class="doc-chunks">${doc.chunks}チャンク</span>
+                </div>
+            `).join('');
+
+            clearBtn.style.display = documents.length > 0 ? 'block' : 'none';
+            statsBadge.textContent = `ドキュメント: ${documents.length}件`;
+        }
+
+        clearBtn.addEventListener('click', async () => {
+            if (!confirm('すべてのドキュメントデータを削除しますか？')) return;
+
+            try {
+                await fetch('/api/clear', { method: 'POST' });
+                documents = [];
+                renderDocuments();
+                addMessage('system', 'すべてのドキュメントデータを削除しました。');
+            } catch (err) {
+                addMessage('error', 'データの削除に失敗しました。');
+            }
+        });
+
+        // Chat
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const question = chatInput.value.trim();
+            if (!question) return;
+
+            addMessage('user', question);
+            chatInput.value = '';
+            sendBtn.disabled = true;
+            typingIndicator.classList.add('visible');
+            scrollToBottom();
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || '回答の取得に失敗しました');
+                }
+
+                const data = await res.json();
+                let content = data.answer;
+                if (data.sources && data.sources.length > 0) {
+                    content += `\n\n📎 出典: ${data.sources.join(', ')}`;
+                }
+                addMessage('assistant', content);
+            } catch (err) {
+                addMessage('error', `エラー: ${err.message}`);
+            } finally {
+                typingIndicator.classList.remove('visible');
+                sendBtn.disabled = false;
+                chatInput.focus();
+            }
+        }
+
+        function addMessage(type, text) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            chatMessages.appendChild(div);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Load initial stats
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                if (res.ok) {
+                    const data = await res.json();
+                    statsBadge.textContent = `ドキュメント: ${data.total_documents}件`;
+                }
+            } catch (e) {}
+        }
+
+        loadStats();
+    </script>
+</body>
+</html>

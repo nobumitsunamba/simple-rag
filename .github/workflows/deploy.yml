@@ -1,0 +1,68 @@
+name: Deploy to ECS Express Mode
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REPOSITORY: simple-rag
+  SERVICE_NAME: simple-rag
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS Express Mode
+        run: |
+          # Check if service exists
+          SERVICE_EXISTS=$(aws ecs describe-express-gateway-service \
+            --service-arn arn:aws:ecs:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:service/default/$SERVICE_NAME 2>/dev/null && echo "yes" || echo "no")
+
+          if [ "$SERVICE_EXISTS" = "no" ]; then
+            echo "Creating new ECS Express Mode service..."
+            aws ecs create-express-gateway-service \
+              --service-name $SERVICE_NAME \
+              --execution-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsTaskExecutionRole \
+              --infrastructure-role-arn arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsInfrastructureRoleForExpressServices \
+              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"}]}" \
+              --cpu 1 \
+              --memory 2 \
+              --health-check-path "/" \
+              --monitor-resources
+          else
+            echo "Updating existing ECS Express Mode service..."
+            aws ecs update-express-gateway-service \
+              --service-arn arn:aws:ecs:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:service/default/$SERVICE_NAME \
+              --primary-container "{\"image\":\"${{ steps.build-image.outputs.image }}\",\"containerPort\":8080,\"environment\":[{\"name\":\"ANTHROPIC_API_KEY\",\"value\":\"${{ secrets.ANTHROPIC_API_KEY }}\"}]}" \
+              --monitor-resources
+          fi
