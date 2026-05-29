@@ -464,9 +464,18 @@
                 }
 
                 const data = await res.json();
-                documents.push({ name: data.filename, chunks: data.chunks_added });
-                renderDocuments();
-                addMessage('system', data.message);
+
+                if (data.status === 'processing') {
+                    // Large file: poll for completion
+                    documents.push({ name: data.filename, chunks: 0, processing: true });
+                    renderDocuments();
+                    addMessage('system', data.message);
+                    pollProcessingStatus(data.filename);
+                } else {
+                    documents.push({ name: data.filename, chunks: data.chunks_added, processing: false });
+                    renderDocuments();
+                    addMessage('system', data.message);
+                }
             } catch (err) {
                 addMessage('error', `エラー: ${err.message}`);
             } finally {
@@ -474,12 +483,50 @@
             }
         }
 
+        async function pollProcessingStatus(filename) {
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/processing/${encodeURIComponent(filename)}`);
+                    if (!res.ok) { clearInterval(interval); return; }
+                    const data = await res.json();
+
+                    // Update document in list
+                    const doc = documents.find(d => d.name === filename);
+                    if (doc) {
+                        doc.chunks = data.chunks_added;
+                        if (data.status === 'completed') {
+                            doc.processing = false;
+                        }
+                        renderDocuments();
+                    }
+
+                    // Update status message
+                    uploadStatus.textContent = data.message;
+
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        uploadProgress.classList.remove('visible');
+                        addMessage('system', data.message);
+                    } else if (data.status === 'error') {
+                        clearInterval(interval);
+                        uploadProgress.classList.remove('visible');
+                        addMessage('error', data.message);
+                    } else {
+                        uploadProgress.classList.add('visible');
+                    }
+                } catch (e) {
+                    clearInterval(interval);
+                    uploadProgress.classList.remove('visible');
+                }
+            }, 2000);
+        }
+
         function renderDocuments() {
             documentList.innerHTML = documents.map(doc => `
                 <div class="document-item">
-                    <span class="doc-icon">📄</span>
+                    <span class="doc-icon">${doc.processing ? '⏳' : '📄'}</span>
                     <span class="doc-name" title="${doc.name}">${doc.name}</span>
-                    <span class="doc-chunks">${doc.chunks}チャンク</span>
+                    <span class="doc-chunks">${doc.processing ? '処理中...' : doc.chunks + 'チャンク'}</span>
                 </div>
             `).join('');
 

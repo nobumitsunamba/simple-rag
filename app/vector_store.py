@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import concurrent.futures
 
 import boto3
 
@@ -33,12 +34,19 @@ class VectorStore:
         result = json.loads(response["body"].read())
         return result["embedding"]
 
-    def _get_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
-        """Get embeddings for multiple texts."""
-        embeddings = []
-        for text in texts:
-            embedding = self._get_embedding(text)
-            embeddings.append(embedding)
+    def _get_embeddings_batch(self, texts: list[str], max_workers: int = 10) -> list[list[float]]:
+        """Get embeddings for multiple texts using parallel requests."""
+        embeddings = [None] * len(texts)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {
+                executor.submit(self._get_embedding, text): idx
+                for idx, text in enumerate(texts)
+            }
+            for future in concurrent.futures.as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                embeddings[idx] = future.result()
+
         return embeddings
 
     def _cosine_similarity(self, vec_a: list[float], vec_b: list[float]) -> float:
@@ -58,7 +66,7 @@ class VectorStore:
         if not chunks:
             return 0
 
-        # Get embeddings for all chunks
+        # Get embeddings in parallel batches
         new_embeddings = self._get_embeddings_batch(chunks)
 
         self.chunks.extend(chunks)
@@ -70,23 +78,17 @@ class VectorStore:
         return len(chunks)
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search for the most relevant chunks given a query.
-
-        Returns a list of dicts with 'text', 'source', and 'score'.
-        """
+        """Search for the most relevant chunks given a query."""
         if not self.chunks:
             return []
 
-        # Get query embedding
         query_embedding = self._get_embedding(query)
 
-        # Calculate similarities
         scores = []
         for i, chunk_embedding in enumerate(self.embeddings):
             score = self._cosine_similarity(query_embedding, chunk_embedding)
             scores.append((score, i))
 
-        # Sort by score descending
         scores.sort(key=lambda x: x[0], reverse=True)
 
         results = []

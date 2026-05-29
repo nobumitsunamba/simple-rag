@@ -1,13 +1,13 @@
 """FastAPI application for the RAG system."""
 
 import os
+import threading
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .document_processor import extract_text, split_text
@@ -19,6 +19,9 @@ load_dotenv()
 # Global instances
 vector_store: VectorStore | None = None
 rag_engine: RAGEngine | None = None
+
+# Track processing status
+processing_status: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -65,12 +68,44 @@ class UploadResponse(BaseModel):
     filename: str
     chunks_added: int
     message: str
+    status: str
 
 
 class StatsResponse(BaseModel):
     total_chunks: int
     total_documents: int
     documents: list[str]
+
+
+class ProcessingStatusResponse(BaseModel):
+    filename: str
+    status: str
+    chunks_added: int
+    message: str
+
+
+def _process_document_background(filename: str, text: str):
+    """Process document in background thread."""
+    global processing_status
+    try:
+        chunks = split_text(text)
+        processing_status[filename]["message"] = f"埋め込み生成中... (0/{len(chunks)}チャンク)"
+
+        # Process in smaller batches to show progress
+        batch_size = 50
+        total_added = 0
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            vector_store.add_documents(batch, filename)
+            total_added += len(batch)
+            processing_status[filename]["chunks_added"] = total_added
+            processing_status[filename]["message"] = f"埋め込み生成中... ({total_added}/{len(chunks)}チャンク)"
+
+        processing_status[filename]["status"] = "completed"
+        processing_status[filename]["message"] = f"'{filename}' を処理しました。{total_added}個のチャンクを追加しました。"
+    except Exception as e:
+        processing_status[filename]["status"] = "error"
+        processing_status[filename]["message"] = f"処理中にエラーが発生しました: {str(e)}"
 
 
 @app.post("/api/upload", response_model=UploadResponse)
@@ -98,17 +133,50 @@ async def upload_document(file: UploadFile = File(...)):
             )
 
         chunks = split_text(text)
-        num_chunks = vector_store.add_documents(chunks, file.filename)
+        num_chunks = len(chunks)
 
-        return UploadResponse(
-            filename=file.filename,
-            chunks_added=num_chunks,
-            message=f"'{file.filename}' を処理しました。{num_chunks}個のチャンクを追加しました。",
-        )
+        if num_chunks > 100:
+            # Large file: process in background
+            processing_status[file.filename] = {
+                "filename": file.filename,
+                "status": "processing",
+                "chunks_added": 0,
+                "message": f"処理を開始しました... ({num_chunks}チャンク)",
+            }
+            thread = threading.Thread(
+                target=_process_document_background,
+                args=(file.filename, text),
+                daemon=True,
+            )
+            thread.start()
+
+            return UploadResponse(
+                filename=file.filename,
+                chunks_added=0,
+                message=f"'{file.filename}' の処理をバックグラウンドで開始しました（{num_chunks}チャンク）。処理状況は自動更新されます。",
+                status="processing",
+            )
+        else:
+            # Small file: process immediately
+            added = vector_store.add_documents(chunks, file.filename)
+            return UploadResponse(
+                filename=file.filename,
+                chunks_added=added,
+                message=f"'{file.filename}' を処理しました。{added}個のチャンクを追加しました。",
+                status="completed",
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ファイル処理中にエラーが発生しました: {str(e)}")
+
+
+@app.get("/api/processing/{filename}", response_model=ProcessingStatusResponse)
+async def get_processing_status(filename: str):
+    """Get processing status for a file."""
+    if filename not in processing_status:
+        raise HTTPException(status_code=404, detail="ファイルが見つかりません。")
+    return ProcessingStatusResponse(**processing_status[filename])
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -141,6 +209,7 @@ async def get_stats():
 async def clear_store():
     """Clear all uploaded documents."""
     vector_store.clear()
+    processing_status.clear()
     return {"message": "すべてのドキュメントデータを削除しました。"}
 
 
