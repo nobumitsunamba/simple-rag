@@ -1,13 +1,17 @@
 """FastAPI application for the RAG system."""
 
+import io
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime
 
+from docx import Document as DocxDocument
+from docx.shared import Pt
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .document_processor import extract_text, split_text
@@ -299,6 +303,49 @@ async def load_knowledge(request: LoadRequest):
         raise HTTPException(status_code=500, detail=f"読み込み中にエラーが発生しました: {str(e)}")
 
 
+@app.post("/api/knowledge/append")
+async def append_to_knowledge(request: LoadRequest):
+    """Load a saved knowledge base and append current session data to it."""
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="ナレッジベース名を入力してください。")
+
+    if not vector_store.chunks:
+        raise HTTPException(status_code=400, detail="追加するドキュメントがありません。")
+
+    try:
+        # Load existing data
+        data = load_knowledge_base(request.name.strip())
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"ナレッジベース '{request.name}' が見つかりません。")
+
+        # Merge: existing + current session
+        merged_chunks = data["chunks"] + vector_store.chunks
+        merged_metadata = data["metadata"] + vector_store.metadata
+        merged_embeddings = data["embeddings"] + vector_store.embeddings
+
+        # Save merged data
+        result = save_knowledge_base(
+            name=request.name.strip(),
+            chunks=merged_chunks,
+            metadata=merged_metadata,
+            embeddings=merged_embeddings,
+        )
+
+        # Update current session with merged data
+        vector_store.chunks = merged_chunks
+        vector_store.metadata = merged_metadata
+        vector_store.embeddings = merged_embeddings
+
+        return {
+            "message": f"ナレッジベース '{request.name}' にドキュメントを追加しました（合計{result['total_chunks']}チャンク、{result['total_documents']}ファイル）。",
+            **result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"追加保存中にエラーが発生しました: {str(e)}")
+
+
 @app.get("/api/knowledge/list")
 async def list_knowledge():
     """List all saved knowledge bases."""
@@ -322,6 +369,59 @@ async def delete_knowledge(name: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"削除中にエラーが発生しました: {str(e)}")
+
+
+# --- Chat Export ---
+
+class ExportRequest(BaseModel):
+    messages: list[dict]  # [{role: "user"|"assistant", content: str}]
+    knowledge_base_name: str = ""
+
+
+@app.post("/api/export/word")
+async def export_chat_to_word(request: ExportRequest):
+    """Export chat history as a Word document."""
+    doc = DocxDocument()
+
+    # Title
+    doc.add_heading("チャット履歴", level=0)
+
+    # Metadata
+    meta = doc.add_paragraph()
+    meta.add_run(f"エクスポート日時: {datetime.now().strftime('%Y年%m月%d日 %H:%M')}\n").font.size = Pt(9)
+    if request.knowledge_base_name:
+        meta.add_run(f"ナレッジベース: {request.knowledge_base_name}\n").font.size = Pt(9)
+
+    doc.add_paragraph("")
+
+    # Messages
+    for msg in request.messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        if role == "user":
+            p = doc.add_paragraph()
+            run = p.add_run("Q: ")
+            run.bold = True
+            p.add_run(content)
+        elif role == "assistant":
+            p = doc.add_paragraph()
+            run = p.add_run("A: ")
+            run.bold = True
+            p.add_run(content)
+            doc.add_paragraph("")  # spacing
+
+    # Save to buffer
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    filename = f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
