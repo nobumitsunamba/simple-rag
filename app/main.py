@@ -305,12 +305,17 @@ async def load_knowledge(request: LoadRequest):
             rag_engine.conversations.clear()
 
         total_docs = len(set(m["source"] for m in data["metadata"]))
+        # Count chunks per document
+        doc_chunks = {}
+        for m in data["metadata"]:
+            doc_chunks[m["source"]] = doc_chunks.get(m["source"], 0) + 1
+
         return {
             "message": f"ナレッジベース '{request.name}' を読み込みました（{len(data['chunks'])}チャンク、{total_docs}ファイル）。",
             "name": request.name,
             "total_chunks": len(data["chunks"]),
             "total_documents": total_docs,
-            "documents": list(set(m["source"] for m in data["metadata"])),
+            "documents": [{"name": name, "chunks": count} for name, count in doc_chunks.items()],
         }
     except HTTPException:
         raise

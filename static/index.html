@@ -493,7 +493,7 @@
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 currentKBName = name;
-                documents = data.documents.map(d => ({ name: d, chunks: '?', processing: false }));
+                documents = data.documents.map(d => ({ name: d.name, chunks: d.chunks, processing: false }));
                 conversationId = 'conv-' + Date.now(); chatHistory = [];
                 hasUnsavedChanges = false;
                 renderDocuments();
