@@ -141,7 +141,7 @@ def _split_into_sentences(text: str) -> list[str]:
     return result
 
 
-def split_text(text: str, chunk_size: int = 400, chunk_overlap: int = 80) -> list[str]:
+def split_text(text: str, chunk_size: int = 700, chunk_overlap: int = 150) -> list[str]:
     """Split text into semantic chunks optimized for Japanese documents."""
     paragraphs = re.split(r'\n\s*\n', text)
 
@@ -186,7 +186,7 @@ def split_text(text: str, chunk_size: int = 400, chunk_overlap: int = 80) -> lis
     return chunks
 
 
-def split_text_with_pages(text: str, page_map: dict | None, chunk_size: int = 400, chunk_overlap: int = 80) -> list[dict]:
+def split_text_with_pages(text: str, page_map: dict | None, chunk_size: int = 700, chunk_overlap: int = 150) -> list[dict]:
     """Split text into chunks with page number information.
 
     Returns list of {text, page} dicts.
