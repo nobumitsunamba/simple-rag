@@ -133,11 +133,11 @@ class RAGEngine:
         # Expand query for better retrieval
         queries = self._expand_query(question)
 
-        # Retrieve candidates from multiple queries
+        # Retrieve candidates using hybrid search (semantic + keyword)
         all_results = []
         seen_texts = set()
         for q in queries:
-            results = self.vector_store.search(q, top_k=10)
+            results = self.vector_store.hybrid_search(q, top_k=10)
             for r in results:
                 if r["text"][:100] not in seen_texts:
                     seen_texts.add(r["text"][:100])

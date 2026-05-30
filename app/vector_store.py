@@ -139,6 +139,88 @@ class VectorStore:
 
         return results
 
+    def keyword_search(self, query: str, top_k: int = 10) -> list[dict]:
+        """Keyword-based search using exact term matching."""
+        import re
+        if not self.chunks:
+            return []
+
+        # Tokenize query into words
+        query_terms = set(re.findall(r'\w+', query.lower()))
+        if not query_terms:
+            return []
+
+        scores = []
+        for i, chunk in enumerate(self.chunks):
+            chunk_lower = chunk.lower()
+            # Count how many query terms appear in the chunk
+            matches = sum(1 for term in query_terms if term in chunk_lower)
+            if matches > 0:
+                # Score: proportion of query terms found, weighted by frequency
+                score = matches / len(query_terms)
+                scores.append((score, i))
+
+        scores.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for score, idx in scores[:top_k]:
+            results.append({
+                "text": self.chunks[idx],
+                "source": self.metadata[idx]["source"],
+                "score": score,
+                "page": self.metadata[idx].get("page"),
+            })
+
+        return results
+
+    def hybrid_search(self, query: str, top_k: int = 15, semantic_weight: float = 0.7) -> list[dict]:
+        """Hybrid search combining semantic and keyword search."""
+        semantic_results = self.search(query, top_k=top_k)
+        keyword_results = self.keyword_search(query, top_k=top_k)
+
+        # Normalize scores
+        if semantic_results:
+            max_sem = max(r["score"] for r in semantic_results)
+            for r in semantic_results:
+                r["_norm_score"] = (r["score"] / max_sem) if max_sem > 0 else 0
+        if keyword_results:
+            max_kw = max(r["score"] for r in keyword_results)
+            for r in keyword_results:
+                r["_norm_score"] = (r["score"] / max_kw) if max_kw > 0 else 0
+
+        # Merge results with weighted scores
+        merged = {}
+        for r in semantic_results:
+            key = r["text"][:100]
+            merged[key] = {
+                **r,
+                "combined_score": r["_norm_score"] * semantic_weight,
+            }
+        for r in keyword_results:
+            key = r["text"][:100]
+            if key in merged:
+                merged[key]["combined_score"] += r["_norm_score"] * (1 - semantic_weight)
+            else:
+                merged[key] = {
+                    **r,
+                    "combined_score": r["_norm_score"] * (1 - semantic_weight),
+                }
+
+        # Sort by combined score
+        sorted_results = sorted(merged.values(), key=lambda x: x["combined_score"], reverse=True)
+
+        # Clean up internal fields
+        results = []
+        for r in sorted_results[:top_k]:
+            results.append({
+                "text": r["text"],
+                "source": r["source"],
+                "score": r["combined_score"],
+                "page": r.get("page"),
+            })
+
+        return results
+
     def get_stats(self) -> dict:
         """Get statistics about the vector store."""
         sources = set(m["source"] for m in self.metadata)

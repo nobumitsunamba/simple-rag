@@ -1,6 +1,7 @@
 """FastAPI application for the RAG system."""
 
 import io
+import json as json_module
 import os
 import threading
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+from .audit_log import log_event
 from .document_processor import extract_text, extract_text_with_pages, split_text, split_text_with_pages
 from .auth import sign_up, confirm_sign_up, sign_in, verify_token
 from .knowledge_store import (
@@ -227,6 +229,7 @@ async def chat(request: ChatRequest):
 
     try:
         result = rag_engine.generate_answer(request.question, request.conversation_id)
+        log_event("chat", details={"question": request.question, "confidence": result["confidence"]})
         return ChatResponse(answer=result["answer"], sources=result["sources"], confidence=result["confidence"], conversation_id=result["conversation_id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"回答生成中にエラーが発生しました: {str(e)}")
@@ -237,6 +240,110 @@ async def get_stats():
     """Get statistics about uploaded documents."""
     stats = vector_store.get_stats()
     return StatsResponse(**stats)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Stream a chat response using Server-Sent Events."""
+    if not rag_engine:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEYが設定されていません。")
+
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="質問を入力してください。")
+
+    import anthropic
+
+    # Prepare context (same as generate_answer but without final LLM call)
+    queries = rag_engine._expand_query(request.question)
+    all_results = []
+    seen_texts = set()
+    for q in queries:
+        results = rag_engine.vector_store.hybrid_search(q, top_k=10)
+        for r in results:
+            if r["text"][:100] not in seen_texts:
+                seen_texts.add(r["text"][:100])
+                all_results.append(r)
+
+    if not all_results:
+        async def empty_stream():
+            yield f"data: {json_module.dumps({'type': 'text', 'content': 'ドキュメントがまだアップロードされていないか、関連する情報が見つかりませんでした。'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json_module.dumps({'type': 'done', 'sources': [], 'confidence': 0})}\n\n"
+        return StreamingResponse(empty_stream(), media_type="text/event-stream")
+
+    reranked = rag_engine._rerank(request.question, all_results[:15])
+    top_results = reranked[:6]
+    enhanced_results = rag_engine._get_surrounding_context(top_results)
+
+    max_score = max(r["score"] for r in enhanced_results)
+    confidence = round(max_score * 100, 1)
+
+    context_parts = []
+    sources = []
+    for r in enhanced_results:
+        page_info = f" (p.{r['page']})" if r.get("page") else ""
+        context_parts.append(f"[出典: {r['source']}{page_info}]\n{r['text']}")
+        source_entry = r["source"] + (f" p.{r['page']}" if r.get("page") else "")
+        if source_entry not in sources:
+            sources.append(source_entry)
+
+    context = "\n\n---\n\n".join(context_parts)
+
+    system_prompt = (
+        "あなたは社内ドキュメントに基づいて質問に答える業務アシスタントです。\n\n"
+        "## 回答ルール\n"
+        "- コンテキスト情報のみを根拠に回答すること\n"
+        "- コンテキストに答えがない場合は「提供されたドキュメントにはその情報が含まれていません」と正直に答える\n"
+        "- 会話の履歴も考慮し、文脈に沿った回答をする\n"
+        "- 推測や一般知識で補完しない\n\n"
+        "## 回答フォーマット\n"
+        "1. まず結論を1〜2文で簡潔に述べる\n"
+        "2. 次に根拠となる情報を具体的に示す（数値、日付、固有名詞を含める）\n"
+        "3. 必要に応じて補足情報や関連する注意点を付記する\n\n"
+        "## 文体\n"
+        "- 日本語で回答する\n"
+        "- 敬体（です・ます調）で統一する\n"
+        "- 箇条書きと文章を適切に使い分ける\n"
+        "- 出典は回答の最後にまとめて記載する"
+    )
+
+    # Build messages with history
+    conv_id = request.conversation_id
+    if conv_id not in rag_engine.conversations:
+        rag_engine.conversations[conv_id] = []
+    history = rag_engine.conversations[conv_id]
+
+    user_message = f"コンテキスト:\n{context}\n\n質問: {request.question}"
+    messages = list(history) + [{"role": "user", "content": user_message}]
+
+    async def stream_response():
+        full_answer = ""
+        try:
+            with rag_engine.client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=1500,
+                system=system_prompt,
+                messages=messages,
+                temperature=0.1,
+            ) as stream:
+                for text in stream.text_stream:
+                    full_answer += text
+                    yield f"data: {json_module.dumps({'type': 'text', 'content': text}, ensure_ascii=False)}\n\n"
+
+            # Save to history
+            history.append({"role": "user", "content": request.question})
+            history.append({"role": "assistant", "content": full_answer})
+            if len(history) > rag_engine.max_history * 2:
+                rag_engine.conversations[conv_id] = history[-(rag_engine.max_history * 2):]
+
+            # Log
+            log_event("chat_stream", details={"question": request.question, "confidence": confidence})
+
+            # Send done event with metadata
+            yield f"data: {json_module.dumps({'type': 'done', 'sources': sources, 'confidence': confidence}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json_module.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(stream_response(), media_type="text/event-stream")
 
 
 @app.post("/api/clear")

@@ -382,26 +382,70 @@
             chatHistory.push({ role: 'user', content: question });
             chatInput.value = ''; sendBtn.disabled = true;
             typingIndicator.classList.add('visible'); scrollToBottom();
+
+            // Create assistant message element for streaming
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message assistant';
+            msgDiv.textContent = '';
+            chatMessages.appendChild(msgDiv);
+            typingIndicator.classList.remove('visible');
+            scrollToBottom();
+
+            let fullContent = '';
             try {
-                const res = await fetch('/api/chat', {
+                const res = await fetch('/api/chat/stream', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question, conversation_id: conversationId }),
                 });
+
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
-                const data = await res.json();
-                let content = data.answer;
-                // Confidence indicator
-                let confidenceLabel = '';
-                if (data.confidence >= 70) confidenceLabel = `✅ 確信度: ${data.confidence}%`;
-                else if (data.confidence >= 40) confidenceLabel = `⚠️ 確信度: ${data.confidence}%（関連度が低い可能性があります）`;
-                else confidenceLabel = `❌ 確信度: ${data.confidence}%（関連する情報が少ない可能性があります）`;
-                content += `\n\n${confidenceLabel}`;
-                if (data.sources && data.sources.length > 0) content += `\n📎 出典: ${data.sources.join(', ')}`;
-                addMessage('assistant', content);
-                addFeedbackButtons();
-                chatHistory.push({ role: 'assistant', content });
-            } catch (err) { addMessage('error', `エラー: ${err.message}`); }
-            finally { typingIndicator.classList.remove('visible'); sendBtn.disabled = false; chatInput.focus(); }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = JSON.parse(line.slice(6));
+
+                        if (data.type === 'text') {
+                            fullContent += data.content;
+                            msgDiv.textContent = fullContent;
+                            scrollToBottom();
+                        } else if (data.type === 'done') {
+                            // Append metadata
+                            let meta = '';
+                            if (data.confidence >= 70) meta += `\n\n✅ 確信度: ${data.confidence}%`;
+                            else if (data.confidence >= 40) meta += `\n\n⚠️ 確信度: ${data.confidence}%（関連度が低い可能性があります）`;
+                            else meta += `\n\n❌ 確信度: ${data.confidence}%（関連する情報が少ない可能性があります）`;
+                            if (data.sources && data.sources.length > 0) meta += `\n📎 出典: ${data.sources.join(', ')}`;
+                            fullContent += meta;
+                            msgDiv.textContent = fullContent;
+                            scrollToBottom();
+                            addFeedbackButtons();
+                            chatHistory.push({ role: 'assistant', content: fullContent });
+                        } else if (data.type === 'error') {
+                            msgDiv.className = 'message error';
+                            msgDiv.textContent = `エラー: ${data.content}`;
+                        }
+                    }
+                }
+            } catch (err) {
+                if (!fullContent) {
+                    msgDiv.className = 'message error';
+                    msgDiv.textContent = `エラー: ${err.message}`;
+                }
+            } finally {
+                sendBtn.disabled = false; chatInput.focus();
+            }
         }
 
         function addMessage(type, text) {
