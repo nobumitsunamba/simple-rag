@@ -15,6 +15,30 @@ class RAGEngine:
         self.conversations: dict[str, list[dict]] = {}
         self.max_history = 10  # Keep last 10 exchanges
 
+    def _expand_query(self, question: str) -> list[str]:
+        """Expand the user's question into multiple search queries."""
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=300,
+                temperature=0,
+                messages=[{"role": "user", "content": (
+                    f"以下の質問の意図を分析し、ドキュメント検索に使う検索クエリを3つ生成してください。\n"
+                    f"元の質問とは異なる表現・角度で、関連情報を見つけやすいクエリにしてください。\n"
+                    f"JSON配列で返してください。例: [\"クエリ1\", \"クエリ2\", \"クエリ3\"]\n\n"
+                    f"質問: {question}"
+                )}],
+            )
+            text = response.content[0].text.strip()
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start >= 0 and end > start:
+                queries = json.loads(text[start:end])
+                return [question] + queries[:3]
+        except Exception:
+            pass
+        return [question]
+
     def _rerank(self, question: str, results: list[dict]) -> list[dict]:
         """Rerank search results using Claude to assess relevance."""
         if not results:
@@ -106,10 +130,20 @@ class RAGEngine:
 
         Returns a dict with 'answer', 'sources', 'confidence', and 'conversation_id'.
         """
-        # Retrieve more candidates for reranking
-        results = self.vector_store.search(question, top_k=top_k)
+        # Expand query for better retrieval
+        queries = self._expand_query(question)
 
-        if not results:
+        # Retrieve candidates from multiple queries
+        all_results = []
+        seen_texts = set()
+        for q in queries:
+            results = self.vector_store.search(q, top_k=10)
+            for r in results:
+                if r["text"][:100] not in seen_texts:
+                    seen_texts.add(r["text"][:100])
+                    all_results.append(r)
+
+        if not all_results:
             return {
                 "answer": "ドキュメントがまだアップロードされていないか、関連する情報が見つかりませんでした。先にドキュメントをアップロードしてください。",
                 "sources": [],
@@ -118,7 +152,7 @@ class RAGEngine:
             }
 
         # Rerank results using Claude
-        reranked = self._rerank(question, results[:15])
+        reranked = self._rerank(question, all_results[:15])
 
         # Take top results and add surrounding context
         top_results = reranked[:6]
@@ -142,12 +176,21 @@ class RAGEngine:
 
         # System prompt
         system_prompt = (
-            "あなたはドキュメントに基づいて質問に答えるアシスタントです。\n"
-            "以下のコンテキスト情報を使って質問に答えてください。\n"
-            "コンテキストに答えが含まれていない場合は、「提供されたドキュメントにはその情報が含まれていません」と正直に答えてください。\n"
-            "会話の履歴も考慮して、文脈に沿った回答をしてください。\n"
-            "回答は日本語で行ってください。出典も明記してください。\n"
-            "できるだけ具体的かつ正確に回答してください。"
+            "あなたは社内ドキュメントに基づいて質問に答える業務アシスタントです。\n\n"
+            "## 回答ルール\n"
+            "- コンテキスト情報のみを根拠に回答すること\n"
+            "- コンテキストに答えがない場合は「提供されたドキュメントにはその情報が含まれていません」と正直に答える\n"
+            "- 会話の履歴も考慮し、文脈に沿った回答をする\n"
+            "- 推測や一般知識で補完しない\n\n"
+            "## 回答フォーマット\n"
+            "1. まず結論を1〜2文で簡潔に述べる\n"
+            "2. 次に根拠となる情報を具体的に示す（数値、日付、固有名詞を含める）\n"
+            "3. 必要に応じて補足情報や関連する注意点を付記する\n\n"
+            "## 文体\n"
+            "- 日本語で回答する\n"
+            "- 敬体（です・ます調）で統一する\n"
+            "- 箇条書きと文章を適切に使い分ける\n"
+            "- 出典は回答の最後にまとめて記載する"
         )
 
         # Build messages with history
