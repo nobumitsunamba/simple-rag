@@ -11,6 +11,12 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .document_processor import extract_text, split_text
+from .knowledge_store import (
+    save_knowledge_base,
+    load_knowledge_base,
+    list_knowledge_bases,
+    delete_knowledge_base,
+)
 from .rag_engine import RAGEngine
 from .vector_store import VectorStore
 
@@ -84,6 +90,21 @@ class ProcessingStatusResponse(BaseModel):
     status: str
     chunks_added: int
     message: str
+
+
+class SaveRequest(BaseModel):
+    name: str
+
+
+class KnowledgeBaseInfo(BaseModel):
+    name: str
+    total_chunks: int = 0
+    total_documents: int = 0
+    created_at: str = ""
+
+
+class LoadRequest(BaseModel):
+    name: str
 
 
 def _process_document_background(filename: str, text: str):
@@ -210,10 +231,97 @@ async def get_stats():
 
 @app.post("/api/clear")
 async def clear_store():
-    """Clear all uploaded documents."""
+    """Clear all uploaded documents from current session."""
     vector_store.clear()
     processing_status.clear()
-    return {"message": "すべてのドキュメントデータを削除しました。"}
+    if rag_engine:
+        rag_engine.conversations.clear()
+    return {"message": "現在のセッションデータを削除しました。"}
+
+
+# --- Knowledge Base Save/Load ---
+
+@app.post("/api/knowledge/save")
+async def save_knowledge(request: SaveRequest):
+    """Save current documents as a named knowledge base."""
+    if not vector_store.chunks:
+        raise HTTPException(status_code=400, detail="保存するドキュメントがありません。先にファイルをアップロードしてください。")
+
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="ナレッジベース名を入力してください。")
+
+    try:
+        result = save_knowledge_base(
+            name=request.name.strip(),
+            chunks=vector_store.chunks,
+            metadata=vector_store.metadata,
+            embeddings=vector_store.embeddings,
+        )
+        return {
+            "message": f"ナレッジベース '{request.name}' を保存しました（{result['total_chunks']}チャンク、{result['total_documents']}ファイル）。",
+            **result,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存中にエラーが発生しました: {str(e)}")
+
+
+@app.post("/api/knowledge/load")
+async def load_knowledge(request: LoadRequest):
+    """Load a saved knowledge base."""
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="ナレッジベース名を入力してください。")
+
+    try:
+        data = load_knowledge_base(request.name.strip())
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"ナレッジベース '{request.name}' が見つかりません。")
+
+        # Replace current vector store data
+        vector_store.chunks = data["chunks"]
+        vector_store.metadata = data["metadata"]
+        vector_store.embeddings = data["embeddings"]
+
+        # Clear conversation history for fresh start
+        if rag_engine:
+            rag_engine.conversations.clear()
+
+        total_docs = len(set(m["source"] for m in data["metadata"]))
+        return {
+            "message": f"ナレッジベース '{request.name}' を読み込みました（{len(data['chunks'])}チャンク、{total_docs}ファイル）。",
+            "name": request.name,
+            "total_chunks": len(data["chunks"]),
+            "total_documents": total_docs,
+            "documents": list(set(m["source"] for m in data["metadata"])),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"読み込み中にエラーが発生しました: {str(e)}")
+
+
+@app.get("/api/knowledge/list")
+async def list_knowledge():
+    """List all saved knowledge bases."""
+    try:
+        bases = list_knowledge_bases()
+        return {"knowledge_bases": bases}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"一覧取得中にエラーが発生しました: {str(e)}")
+
+
+@app.delete("/api/knowledge/{name}")
+async def delete_knowledge(name: str):
+    """Delete a saved knowledge base."""
+    try:
+        success = delete_knowledge_base(name)
+        if success:
+            return {"message": f"ナレッジベース '{name}' を削除しました。"}
+        else:
+            raise HTTPException(status_code=404, detail=f"ナレッジベース '{name}' が見つかりません。")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"削除中にエラーが発生しました: {str(e)}")
 
 
 @app.get("/", response_class=HTMLResponse)

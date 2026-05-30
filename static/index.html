@@ -385,6 +385,17 @@
             <div class="document-list" id="document-list"></div>
 
             <button class="clear-btn" id="clear-btn" style="display:none;">すべて削除</button>
+
+            <hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0;">
+            <h2>ナレッジベース</h2>
+
+            <div class="kb-actions">
+                <div style="display:flex;gap:8px;margin-bottom:8px;">
+                    <input type="text" id="kb-name-input" placeholder="名前を入力..." style="flex:1;padding:8px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.8rem;" />
+                    <button id="kb-save-btn" style="padding:8px 12px;background:#667eea;color:white;border:none;border-radius:8px;font-size:0.8rem;cursor:pointer;white-space:nowrap;">保存</button>
+                </div>
+                <div class="kb-list" id="kb-list"></div>
+            </div>
         </aside>
 
         <main class="chat-container">
@@ -619,6 +630,110 @@
         }
 
         loadStats();
+
+        // --- Knowledge Base ---
+        const kbNameInput = document.getElementById('kb-name-input');
+        const kbSaveBtn = document.getElementById('kb-save-btn');
+        const kbList = document.getElementById('kb-list');
+
+        kbSaveBtn.addEventListener('click', saveKnowledgeBase);
+
+        async function saveKnowledgeBase() {
+            const name = kbNameInput.value.trim();
+            if (!name) { alert('名前を入力してください'); return; }
+
+            kbSaveBtn.disabled = true;
+            kbSaveBtn.textContent = '保存中...';
+
+            try {
+                const res = await fetch('/api/knowledge/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail);
+                }
+                const data = await res.json();
+                addMessage('system', data.message);
+                kbNameInput.value = '';
+                loadKnowledgeBases();
+            } catch (err) {
+                addMessage('error', `保存エラー: ${err.message}`);
+            } finally {
+                kbSaveBtn.disabled = false;
+                kbSaveBtn.textContent = '保存';
+            }
+        }
+
+        async function loadKnowledgeBases() {
+            try {
+                const res = await fetch('/api/knowledge/list');
+                if (!res.ok) return;
+                const data = await res.json();
+                renderKnowledgeBases(data.knowledge_bases);
+            } catch (e) {}
+        }
+
+        function renderKnowledgeBases(bases) {
+            if (!bases || bases.length === 0) {
+                kbList.innerHTML = '<p style="font-size:0.8rem;color:#a0aec0;">保存済みのナレッジベースはありません</p>';
+                return;
+            }
+            kbList.innerHTML = bases.map(kb => `
+                <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;background:#f0f4ff;border-radius:8px;margin-bottom:6px;font-size:0.8rem;">
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4a5568;" title="${kb.name}">📁 ${kb.name}</span>
+                    <button onclick="loadKB('${kb.name}')" style="padding:4px 8px;background:#667eea;color:white;border:none;border-radius:4px;font-size:0.7rem;cursor:pointer;">読込</button>
+                    <button onclick="deleteKB('${kb.name}')" style="padding:4px 8px;background:#fed7d7;color:#c53030;border:none;border-radius:4px;font-size:0.7rem;cursor:pointer;">削除</button>
+                </div>
+            `).join('');
+        }
+
+        async function loadKB(name) {
+            if (!confirm(`ナレッジベース "${name}" を読み込みますか？\n現在のデータは置き換えられます。`)) return;
+
+            addMessage('system', `"${name}" を読み込み中...`);
+
+            try {
+                const res = await fetch('/api/knowledge/load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail);
+                }
+                const data = await res.json();
+                documents = data.documents.map(d => ({ name: d, chunks: '?', processing: false }));
+                conversationId = 'conv-' + Date.now();
+                renderDocuments();
+                statsBadge.textContent = `ドキュメント: ${data.total_documents}件`;
+                addMessage('system', data.message);
+            } catch (err) {
+                addMessage('error', `読み込みエラー: ${err.message}`);
+            }
+        }
+
+        async function deleteKB(name) {
+            if (!confirm(`ナレッジベース "${name}" を削除しますか？`)) return;
+
+            try {
+                const res = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail);
+                }
+                const data = await res.json();
+                addMessage('system', data.message);
+                loadKnowledgeBases();
+            } catch (err) {
+                addMessage('error', `削除エラー: ${err.message}`);
+            }
+        }
+
+        loadKnowledgeBases();
     </script>
 </body>
 </html>
