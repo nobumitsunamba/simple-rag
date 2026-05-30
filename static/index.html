@@ -417,7 +417,7 @@
         uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
         uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
         uploadArea.addEventListener('drop', (e) => { e.preventDefault(); uploadArea.classList.remove('dragover'); handleFiles(e.dataTransfer.files); });
-        fileInput.addEventListener('change', (e) => { handleFiles(e.target.files); fileInput.value = ''; });
+        fileInput.addEventListener('change', (e) => { const files = Array.from(e.target.files); fileInput.value = ''; handleFiles(files); });
 
         async function handleFiles(files) { for (const file of files) await uploadFile(file); }
 
