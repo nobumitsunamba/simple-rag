@@ -6,7 +6,7 @@
     <title>Simple RAG - ドキュメントQ&A</title>
     <style>
         :root {
-            --bg: #f5f7fa; --sidebar-bg: #ffffff; --header-bg: #1a1a2e;
+            --bg: #f5f7fa; --sidebar-bg: #ffffff; --header-bg: rgb(50, 168, 170);
             --text: #2d3748; --text-muted: #718096; --text-light: #a0aec0;
             --border: #e2e8f0; --card-bg: #f7fafc; --input-bg: #ffffff;
             --msg-user: #667eea; --msg-assistant: #ffffff; --msg-system: #e2e8f0;
@@ -14,7 +14,7 @@
             --accent: #667eea; --accent-hover: #5a67d8;
         }
         [data-theme="dark"] {
-            --bg: #1a202c; --sidebar-bg: #2d3748; --header-bg: #0d1117;
+            --bg: #1a202c; --sidebar-bg: #2d3748; --header-bg: #1a5c5d;
             --text: #e2e8f0; --text-muted: #a0aec0; --text-light: #718096;
             --border: #4a5568; --card-bg: #374151; --input-bg: #2d3748;
             --msg-user: #667eea; --msg-assistant: #374151; --msg-system: #4a5568;
@@ -161,6 +161,7 @@
                     <button class="btn-sm btn-save" id="kb-save-btn">保存</button>
                 </div>
                 <button class="btn-append" id="kb-append-btn" style="display:none;">現在のナレッジベースに追加保存</button>
+                <button class="btn-append" id="kb-overwrite-btn" style="display:none;background:#e53e3e;">上書き保存</button>
             </div>
             <div class="sidebar-section">
                 <h2>📄 ファイルアップロード</h2>
@@ -209,6 +210,7 @@
         const kbNameInput = document.getElementById('kb-name-input');
         const kbSaveBtn = document.getElementById('kb-save-btn');
         const kbAppendBtn = document.getElementById('kb-append-btn');
+        const kbOverwriteBtn = document.getElementById('kb-overwrite-btn');
         const themeToggle = document.getElementById('theme-toggle');
 
         let documents = [];
@@ -283,6 +285,7 @@
             clearBtn.style.display = documents.length > 0 ? 'block' : 'none';
             statsBadge.textContent = `ドキュメント: ${documents.length}件`;
             kbAppendBtn.style.display = (currentKBName && documents.length > 0) ? 'block' : 'none';
+            kbOverwriteBtn.style.display = currentKBName ? 'block' : 'none';
         }
 
         async function removeDoc(filename) {
@@ -358,6 +361,22 @@
         // --- Knowledge Base ---
         kbSaveBtn.addEventListener('click', saveKB);
         kbAppendBtn.addEventListener('click', appendKB);
+        kbOverwriteBtn.addEventListener('click', overwriteKB);
+
+        async function overwriteKB() {
+            if (!currentKBName) return;
+            if (!confirm(`"${currentKBName}" を現在の内容で上書き保存しますか？`)) return;
+            try {
+                const res = await fetch('/api/knowledge/save', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: currentKBName }),
+                });
+                if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+                const data = await res.json();
+                addMessage('system', `"${currentKBName}" を上書き保存しました。`);
+                loadKBList();
+            } catch (err) { addMessage('error', `上書き保存エラー: ${err.message}`); }
+        }
 
         async function loadKBList() {
             try {
