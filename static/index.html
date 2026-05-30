@@ -337,10 +337,12 @@
                 kbOverwriteBtn.disabled = false;
                 kbOverwriteBtn.style.opacity = '1';
                 kbOverwriteBtn.style.cursor = 'pointer';
+                kbOverwriteBtn.style.background = '#e53e3e';
             } else {
                 kbOverwriteBtn.disabled = true;
-                kbOverwriteBtn.style.opacity = '0.5';
+                kbOverwriteBtn.style.opacity = '1';
                 kbOverwriteBtn.style.cursor = 'not-allowed';
+                kbOverwriteBtn.style.background = '#a0aec0';
             }
         }
 
@@ -362,7 +364,10 @@
             try {
                 await fetch('/api/clear', { method: 'POST' });
                 documents = []; chatHistory = []; currentKBName = ''; conversationId = 'conv-' + Date.now();
+                hasUnsavedChanges = false;
                 renderDocuments(); kbAppendBtn.style.display = 'none';
+                // Clear chat messages
+                chatMessages.innerHTML = '<div class="message system">ナレッジベースを選択するか、ドキュメントをアップロードして質問してください。</div>';
                 addMessage('system', 'セッションをクリアしました。');
             } catch (err) { addMessage('error', 'クリアに失敗しました。'); }
         });
