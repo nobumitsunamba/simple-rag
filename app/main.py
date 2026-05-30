@@ -243,6 +243,15 @@ async def clear_store():
     return {"message": "現在のセッションデータを削除しました。"}
 
 
+@app.delete("/api/document/{filename}")
+async def remove_document(filename: str):
+    """Remove a specific document from the current session."""
+    removed = vector_store.remove_document(filename)
+    if removed == 0:
+        raise HTTPException(status_code=404, detail=f"ドキュメント '{filename}' が見つかりません。")
+    return {"message": f"'{filename}' を削除しました（{removed}チャンク）。", "chunks_removed": removed}
+
+
 # --- Knowledge Base Save/Load ---
 
 @app.post("/api/knowledge/save")

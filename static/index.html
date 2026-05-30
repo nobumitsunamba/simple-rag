@@ -5,322 +5,139 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simple RAG - ドキュメントQ&A</title>
     <style>
+        :root {
+            --bg: #f5f7fa; --sidebar-bg: #ffffff; --header-bg: #1a1a2e;
+            --text: #2d3748; --text-muted: #718096; --text-light: #a0aec0;
+            --border: #e2e8f0; --card-bg: #f7fafc; --input-bg: #ffffff;
+            --msg-user: #667eea; --msg-assistant: #ffffff; --msg-system: #e2e8f0;
+            --msg-error: #fed7d7; --error-text: #c53030;
+            --accent: #667eea; --accent-hover: #5a67d8;
+        }
+        [data-theme="dark"] {
+            --bg: #1a202c; --sidebar-bg: #2d3748; --header-bg: #0d1117;
+            --text: #e2e8f0; --text-muted: #a0aec0; --text-light: #718096;
+            --border: #4a5568; --card-bg: #374151; --input-bg: #2d3748;
+            --msg-user: #667eea; --msg-assistant: #374151; --msg-system: #4a5568;
+            --msg-error: #742a2a; --error-text: #feb2b2;
+            --accent: #7c8cf8; --accent-hover: #667eea;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
-            background: #f5f7fa;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
+            background: var(--bg); height: 100vh; display: flex; flex-direction: column; color: var(--text);
         }
-
         header {
-            background: #1a1a2e;
-            color: white;
-            padding: 12px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            background: var(--header-bg); color: white; padding: 10px 24px;
+            display: flex; align-items: center; justify-content: space-between;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-
-        header h1 { font-size: 1.1rem; font-weight: 600; }
-
-        .header-actions { display: flex; gap: 12px; align-items: center; }
-
-        .stats-badge {
-            background: #16213e;
-            padding: 6px 12px;
-            border-radius: 16px;
-            font-size: 0.75rem;
-            color: #a0aec0;
+        header h1 { font-size: 1rem; font-weight: 600; }
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .header-badge {
+            background: rgba(255,255,255,0.1); padding: 4px 10px;
+            border-radius: 12px; font-size: 0.7rem; color: #a0aec0;
         }
-
+        .theme-toggle {
+            background: none; border: none; color: #a0aec0; cursor: pointer;
+            font-size: 1.1rem; padding: 4px;
+        }
+        .theme-toggle:hover { color: white; }
         .main-container { display: flex; flex: 1; overflow: hidden; }
-
-        /* Sidebar */
         .sidebar {
-            width: 320px;
-            background: white;
-            border-right: 1px solid #e2e8f0;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
+            width: 320px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; overflow-y: auto;
         }
-
-        .sidebar-section {
-            padding: 16px 20px;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
+        .sidebar-section { padding: 14px 18px; border-bottom: 1px solid var(--border); }
         .sidebar-section h2 {
-            font-size: 0.8rem;
-            color: #4a5568;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px;
+            text-transform: uppercase; letter-spacing: 0.5px;
         }
-
-        /* Knowledge base selector */
-        .kb-selector {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
+        .kb-selector { display: flex; gap: 6px; flex-wrap: wrap; }
         .kb-chip {
-            padding: 6px 12px;
-            background: #f0f4ff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 4px;
+            padding: 5px 10px; background: var(--card-bg); border: 1px solid var(--border);
+            border-radius: 14px; font-size: 0.7rem; cursor: pointer; transition: all 0.2s;
+            display: flex; align-items: center; gap: 4px; color: var(--text);
         }
-
-        .kb-chip:hover { border-color: #667eea; background: #ebf4ff; }
-        .kb-chip.active { background: #667eea; color: white; border-color: #667eea; }
-
-        .kb-chip .kb-delete {
-            margin-left: 4px;
-            opacity: 0.6;
-            cursor: pointer;
-            font-size: 0.7rem;
-        }
-
+        .kb-chip:hover { border-color: var(--accent); }
+        .kb-chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+        .kb-chip .kb-delete { margin-left: 4px; opacity: 0.6; cursor: pointer; font-size: 0.65rem; }
         .kb-chip .kb-delete:hover { opacity: 1; }
-
-        .kb-save-row {
-            display: flex;
-            gap: 6px;
-            margin-top: 10px;
-        }
-
+        .kb-save-row { display: flex; gap: 6px; margin-top: 8px; }
         .kb-save-row input {
-            flex: 1;
-            padding: 6px 10px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 0.75rem;
+            flex: 1; padding: 5px 8px; border: 1px solid var(--border);
+            border-radius: 6px; font-size: 0.7rem; background: var(--input-bg); color: var(--text);
         }
-
-        .kb-save-row button, .kb-append-btn {
-            padding: 6px 10px;
-            border: none;
-            border-radius: 8px;
-            font-size: 0.7rem;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .btn-save { background: #667eea; color: white; }
-        .btn-save:hover { background: #5a67d8; }
-        .btn-append { background: #48bb78; color: white; margin-top: 6px; font-size: 0.7rem; padding: 5px 10px; border: none; border-radius: 8px; cursor: pointer; }
+        .btn-sm { padding: 5px 9px; border: none; border-radius: 6px; font-size: 0.65rem; cursor: pointer; white-space: nowrap; }
+        .btn-save { background: var(--accent); color: white; }
+        .btn-save:hover { background: var(--accent-hover); }
+        .btn-append { background: #48bb78; color: white; margin-top: 6px; width: 100%; padding: 5px 9px; border: none; border-radius: 6px; font-size: 0.65rem; cursor: pointer; }
         .btn-append:hover { background: #38a169; }
-
-        /* Upload area */
         .upload-area {
-            border: 2px dashed #cbd5e0;
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            border: 2px dashed var(--border); border-radius: 8px; padding: 16px;
+            text-align: center; cursor: pointer; transition: all 0.2s;
         }
-
-        .upload-area:hover { border-color: #667eea; background: #f7fafc; }
-        .upload-area.dragover { border-color: #667eea; background: #ebf4ff; }
-
-        .upload-area svg { width: 32px; height: 32px; color: #a0aec0; margin-bottom: 6px; }
-        .upload-area p { font-size: 0.8rem; color: #718096; }
-        .upload-area .formats { font-size: 0.7rem; color: #a0aec0; margin-top: 2px; }
-
+        .upload-area:hover { border-color: var(--accent); }
+        .upload-area.dragover { border-color: var(--accent); background: rgba(102,126,234,0.05); }
+        .upload-area svg { width: 28px; height: 28px; color: var(--text-light); margin-bottom: 4px; }
+        .upload-area p { font-size: 0.75rem; color: var(--text-muted); }
+        .upload-area .formats { font-size: 0.65rem; color: var(--text-light); margin-top: 2px; }
         #file-input { display: none; }
-
-        .document-list { margin-top: 10px; }
-
+        .document-list { margin-top: 8px; }
         .document-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 10px;
-            background: #f7fafc;
-            border-radius: 6px;
-            margin-bottom: 6px;
-            font-size: 0.8rem;
+            display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+            background: var(--card-bg); border-radius: 6px; margin-bottom: 4px; font-size: 0.75rem;
         }
-
-        .document-item .doc-name {
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            color: #4a5568;
-        }
-
-        .document-item .doc-chunks { font-size: 0.7rem; color: #a0aec0; }
-
-        .upload-progress { display: none; margin-top: 8px; }
+        .document-item .doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+        .document-item .doc-chunks { font-size: 0.65rem; color: var(--text-light); }
+        .document-item .doc-delete { background: none; border: none; color: var(--error-text); cursor: pointer; font-size: 0.7rem; padding: 2px 4px; opacity: 0.6; }
+        .document-item .doc-delete:hover { opacity: 1; }
+        .upload-progress { display: none; margin-top: 6px; }
         .upload-progress.visible { display: block; }
-
-        .progress-bar { height: 3px; background: #e2e8f0; border-radius: 2px; overflow: hidden; }
-        .progress-bar-fill { height: 100%; background: #667eea; animation: indeterminate 1.5s infinite; }
-
-        @keyframes indeterminate {
-            0% { transform: translateX(-100%); width: 50%; }
-            100% { transform: translateX(200%); width: 50%; }
-        }
-
-        .upload-status { font-size: 0.7rem; color: #718096; margin-top: 4px; }
-
+        .progress-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: var(--accent); animation: indeterminate 1.5s infinite; }
+        @keyframes indeterminate { 0% { transform: translateX(-100%); width: 50%; } 100% { transform: translateX(200%); width: 50%; } }
+        .upload-status { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; }
         .clear-btn {
-            margin-top: 10px;
-            padding: 6px 12px;
-            background: #fed7d7;
-            color: #c53030;
-            border: none;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            cursor: pointer;
-            width: 100%;
+            margin-top: 8px; padding: 5px 10px; background: var(--msg-error); color: var(--error-text);
+            border: none; border-radius: 6px; font-size: 0.65rem; cursor: pointer; width: 100%;
         }
-
-        .clear-btn:hover { background: #feb2b2; }
-
-        /* Chat area */
+        .clear-btn:hover { opacity: 0.8; }
         .chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .message {
-            max-width: 75%;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 0.85rem;
-            line-height: 1.6;
-            white-space: pre-wrap;
-        }
-
-        .message.user {
-            align-self: flex-end;
-            background: #667eea;
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .message.assistant {
-            align-self: flex-start;
-            background: white;
-            color: #2d3748;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-        }
-
-        .message.error {
-            align-self: center;
-            background: #fed7d7;
-            color: #c53030;
-            font-size: 0.8rem;
-        }
-
-        .message.system {
-            align-self: center;
-            background: #e2e8f0;
-            color: #4a5568;
-            font-size: 0.8rem;
-            text-align: center;
-        }
-
-        .typing-indicator {
-            align-self: flex-start;
-            padding: 10px 14px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            display: none;
-            gap: 4px;
-            align-items: center;
-        }
-
+        .chat-messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+        .message { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 0.82rem; line-height: 1.6; white-space: pre-wrap; }
+        .message.user { align-self: flex-end; background: var(--msg-user); color: white; border-bottom-right-radius: 4px; }
+        .message.assistant { align-self: flex-start; background: var(--msg-assistant); color: var(--text); border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .message.error { align-self: center; background: var(--msg-error); color: var(--error-text); font-size: 0.75rem; }
+        .message.system { align-self: center; background: var(--msg-system); color: var(--text-muted); font-size: 0.75rem; text-align: center; }
+        .typing-indicator { align-self: flex-start; padding: 10px 14px; background: var(--msg-assistant); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: none; gap: 4px; align-items: center; }
         .typing-indicator.visible { display: flex; }
-
-        .typing-indicator span {
-            width: 7px; height: 7px;
-            background: #a0aec0;
-            border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out;
-        }
-
+        .typing-indicator span { width: 6px; height: 6px; background: var(--text-light); border-radius: 50%; animation: bounce 1.4s infinite ease-in-out; }
         .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
         .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0.6); }
-            40% { transform: scale(1); }
-        }
-
-        /* Input area */
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); } 40% { transform: scale(1); } }
         .chat-input-area {
-            padding: 12px 20px;
-            background: white;
-            border-top: 1px solid #e2e8f0;
-            display: flex;
-            gap: 10px;
-            align-items: center;
+            padding: 10px 18px; background: var(--sidebar-bg); border-top: 1px solid var(--border);
+            display: flex; gap: 8px; align-items: center;
         }
-
         .chat-input-area input {
-            flex: 1;
-            padding: 10px 14px;
-            border: 1px solid #e2e8f0;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            outline: none;
+            flex: 1; padding: 9px 14px; border: 1px solid var(--border); border-radius: 18px;
+            font-size: 0.82rem; outline: none; background: var(--input-bg); color: var(--text);
         }
-
-        .chat-input-area input:focus { border-color: #667eea; }
-
+        .chat-input-area input:focus { border-color: var(--accent); }
         .chat-input-area button {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            cursor: pointer;
+            padding: 9px 16px; background: var(--accent); color: white; border: none;
+            border-radius: 18px; font-size: 0.82rem; cursor: pointer;
         }
-
-        .chat-input-area button:hover { background: #5a67d8; }
-        .chat-input-area button:disabled { background: #a0aec0; cursor: not-allowed; }
-
+        .chat-input-area button:hover { background: var(--accent-hover); }
+        .chat-input-area button:disabled { background: var(--text-light); cursor: not-allowed; }
         .export-btn {
-            padding: 8px 12px;
-            background: #edf2f7;
-            color: #4a5568;
-            border: 1px solid #e2e8f0;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            white-space: nowrap;
+            padding: 7px 10px; background: var(--card-bg); color: var(--text-muted);
+            border: 1px solid var(--border); border-radius: 18px; font-size: 0.7rem; cursor: pointer; white-space: nowrap;
         }
-
-        .export-btn:hover { background: #e2e8f0; }
-
-        /* Responsive */
+        .export-btn:hover { background: var(--border); }
         @media (max-width: 768px) {
             .main-container { flex-direction: column; }
-            .sidebar { width: 100%; max-height: 250px; border-right: none; border-bottom: 1px solid #e2e8f0; }
+            .sidebar { width: 100%; max-height: 250px; border-right: none; border-bottom: 1px solid var(--border); }
             .message { max-width: 90%; }
         }
     </style>
@@ -329,26 +146,22 @@
     <header>
         <h1>📚 Simple RAG</h1>
         <div class="header-actions">
-            <span class="stats-badge" id="stats-badge">ドキュメント: 0件</span>
+            <span class="header-badge" id="llm-badge">LLM: Claude Sonnet 4.6</span>
+            <span class="header-badge" id="stats-badge">ドキュメント: 0件</span>
+            <button class="theme-toggle" id="theme-toggle" title="テーマ切替">🌙</button>
         </div>
     </header>
-
     <div class="main-container">
         <aside class="sidebar">
-            <!-- Knowledge Base Section (Top) -->
             <div class="sidebar-section">
                 <h2>📁 ナレッジベース</h2>
-                <div class="kb-selector" id="kb-selector">
-                    <span style="font-size:0.75rem;color:#a0aec0;">読み込み中...</span>
-                </div>
+                <div class="kb-selector" id="kb-selector"><span style="font-size:0.7rem;color:var(--text-light);">読み込み中...</span></div>
                 <div class="kb-save-row">
                     <input type="text" id="kb-name-input" placeholder="名前を付けて保存..." />
-                    <button class="btn-save" id="kb-save-btn">保存</button>
+                    <button class="btn-sm btn-save" id="kb-save-btn">保存</button>
                 </div>
-                <button class="btn-append" id="kb-append-btn" style="display:none;width:100%;">現在のナレッジベースに追加保存</button>
+                <button class="btn-append" id="kb-append-btn" style="display:none;">現在のナレッジベースに追加保存</button>
             </div>
-
-            <!-- Upload Section -->
             <div class="sidebar-section">
                 <h2>📄 ファイルアップロード</h2>
                 <div class="upload-area" id="upload-area">
@@ -359,28 +172,19 @@
                     <p class="formats">PDF / Word (.docx)</p>
                 </div>
                 <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc" />
-
                 <div class="upload-progress" id="upload-progress">
                     <div class="progress-bar"><div class="progress-bar-fill"></div></div>
                     <div class="upload-status" id="upload-status">アップロード中...</div>
                 </div>
-
                 <div class="document-list" id="document-list"></div>
                 <button class="clear-btn" id="clear-btn" style="display:none;">セッションをクリア</button>
             </div>
         </aside>
-
         <main class="chat-container">
             <div class="chat-messages" id="chat-messages">
-                <div class="message system">
-                    ナレッジベースを選択するか、ドキュメントをアップロードして質問してください。
-                </div>
+                <div class="message system">ナレッジベースを選択するか、ドキュメントをアップロードして質問してください。</div>
             </div>
-
-            <div class="typing-indicator" id="typing-indicator">
-                <span></span><span></span><span></span>
-            </div>
-
+            <div class="typing-indicator" id="typing-indicator"><span></span><span></span><span></span></div>
             <div class="chat-input-area">
                 <input type="text" id="chat-input" placeholder="質問を入力..." autocomplete="off" />
                 <button id="send-btn">送信</button>
@@ -388,7 +192,6 @@
             </div>
         </main>
     </div>
-
     <script>
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
@@ -406,12 +209,24 @@
         const kbNameInput = document.getElementById('kb-name-input');
         const kbSaveBtn = document.getElementById('kb-save-btn');
         const kbAppendBtn = document.getElementById('kb-append-btn');
+        const themeToggle = document.getElementById('theme-toggle');
 
         let documents = [];
         let conversationId = 'conv-' + Date.now();
-        let chatHistory = []; // {role, content}
+        let chatHistory = [];
         let currentKBName = '';
 
+        // --- Theme ---
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+        }
+        themeToggle.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme');
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+        setTheme(localStorage.getItem('theme') || 'light');
         // --- Upload ---
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
@@ -426,27 +241,19 @@
             uploadStatus.textContent = `${file.name} をアップロード中...`;
             const formData = new FormData();
             formData.append('file', file);
-
             try {
                 const res = await fetch('/api/upload', { method: 'POST', body: formData });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
-
                 if (data.status === 'processing') {
                     documents.push({ name: data.filename, chunks: 0, processing: true });
-                    renderDocuments();
-                    addMessage('system', data.message);
-                    pollProcessingStatus(data.filename);
+                    renderDocuments(); addMessage('system', data.message); pollProcessingStatus(data.filename);
                 } else {
                     documents.push({ name: data.filename, chunks: data.chunks_added, processing: false });
-                    renderDocuments();
-                    addMessage('system', data.message);
+                    renderDocuments(); addMessage('system', data.message);
                 }
-            } catch (err) {
-                addMessage('error', `エラー: ${err.message}`);
-            } finally {
-                uploadProgress.classList.remove('visible');
-            }
+            } catch (err) { addMessage('error', `エラー: ${err.message}`); }
+            finally { uploadProgress.classList.remove('visible'); }
         }
 
         async function pollProcessingStatus(filename) {
@@ -464,35 +271,41 @@
                 } catch (e) { clearInterval(interval); uploadProgress.classList.remove('visible'); }
             }, 2000);
         }
-
         function renderDocuments() {
             documentList.innerHTML = documents.map(doc => `
                 <div class="document-item">
                     <span>${doc.processing ? '⏳' : '📄'}</span>
                     <span class="doc-name" title="${doc.name}">${doc.name}</span>
                     <span class="doc-chunks">${doc.processing ? '処理中...' : doc.chunks + 'チャンク'}</span>
+                    ${!doc.processing ? `<button class="doc-delete" onclick="removeDoc('${doc.name.replace(/'/g, "\\'")}')">✕</button>` : ''}
                 </div>
             `).join('');
             clearBtn.style.display = documents.length > 0 ? 'block' : 'none';
             statsBadge.textContent = `ドキュメント: ${documents.length}件`;
-            // Show append button if KB is loaded and new docs exist
             kbAppendBtn.style.display = (currentKBName && documents.length > 0) ? 'block' : 'none';
+        }
+
+        async function removeDoc(filename) {
+            if (!confirm(`"${filename}" を削除しますか？`)) return;
+            try {
+                const res = await fetch(`/api/document/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+                const data = await res.json();
+                documents = documents.filter(d => d.name !== filename);
+                renderDocuments();
+                addMessage('system', data.message);
+            } catch (err) { addMessage('error', `削除エラー: ${err.message}`); }
         }
 
         clearBtn.addEventListener('click', async () => {
             if (!confirm('現在のセッションデータを削除しますか？')) return;
             try {
                 await fetch('/api/clear', { method: 'POST' });
-                documents = [];
-                chatHistory = [];
-                currentKBName = '';
-                conversationId = 'conv-' + Date.now();
-                renderDocuments();
-                kbAppendBtn.style.display = 'none';
+                documents = []; chatHistory = []; currentKBName = ''; conversationId = 'conv-' + Date.now();
+                renderDocuments(); kbAppendBtn.style.display = 'none';
                 addMessage('system', 'セッションをクリアしました。');
             } catch (err) { addMessage('error', 'クリアに失敗しました。'); }
         });
-
         // --- Chat ---
         sendBtn.addEventListener('click', sendMessage);
         chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
@@ -500,72 +313,48 @@
         async function sendMessage() {
             const question = chatInput.value.trim();
             if (!question) return;
-
             addMessage('user', question);
             chatHistory.push({ role: 'user', content: question });
-            chatInput.value = '';
-            sendBtn.disabled = true;
-            typingIndicator.classList.add('visible');
-            scrollToBottom();
-
+            chatInput.value = ''; sendBtn.disabled = true;
+            typingIndicator.classList.add('visible'); scrollToBottom();
             try {
                 const res = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question, conversation_id: conversationId }),
                 });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 let content = data.answer;
-                if (data.sources && data.sources.length > 0) {
-                    content += `\n\n📎 出典: ${data.sources.join(', ')}`;
-                }
+                if (data.sources && data.sources.length > 0) content += `\n\n📎 出典: ${data.sources.join(', ')}`;
                 addMessage('assistant', content);
-                chatHistory.push({ role: 'assistant', content: content });
-            } catch (err) {
-                addMessage('error', `エラー: ${err.message}`);
-            } finally {
-                typingIndicator.classList.remove('visible');
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
+                chatHistory.push({ role: 'assistant', content });
+            } catch (err) { addMessage('error', `エラー: ${err.message}`); }
+            finally { typingIndicator.classList.remove('visible'); sendBtn.disabled = false; chatInput.focus(); }
         }
 
         function addMessage(type, text) {
             const div = document.createElement('div');
-            div.className = `message ${type}`;
-            div.textContent = text;
-            chatMessages.appendChild(div);
-            scrollToBottom();
+            div.className = `message ${type}`; div.textContent = text;
+            chatMessages.appendChild(div); scrollToBottom();
         }
-
         function scrollToBottom() { chatMessages.scrollTop = chatMessages.scrollHeight; }
 
         // --- Export ---
-        exportBtn.addEventListener('click', exportChat);
-
-        async function exportChat() {
+        exportBtn.addEventListener('click', async () => {
             if (chatHistory.length === 0) { alert('エクスポートするチャット履歴がありません。'); return; }
-
             try {
                 const res = await fetch('/api/export/word', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ messages: chatHistory, knowledge_base_name: currentKBName }),
                 });
                 if (!res.ok) throw new Error('エクスポートに失敗しました');
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
+                const a = document.createElement('a'); a.href = url;
                 a.download = `chat_export_${new Date().toISOString().slice(0,10)}.docx`;
-                a.click();
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                addMessage('error', `エクスポートエラー: ${err.message}`);
-            }
-        }
-
+                a.click(); URL.revokeObjectURL(url);
+            } catch (err) { addMessage('error', `エクスポートエラー: ${err.message}`); }
+        });
         // --- Knowledge Base ---
         kbSaveBtn.addEventListener('click', saveKB);
         kbAppendBtn.addEventListener('click', appendKB);
@@ -576,14 +365,12 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 renderKBList(data.knowledge_bases);
-            } catch (e) {
-                kbSelector.innerHTML = '<span style="font-size:0.75rem;color:#a0aec0;">一覧を取得できません</span>';
-            }
+            } catch (e) { kbSelector.innerHTML = '<span style="font-size:0.7rem;color:var(--text-light);">取得エラー</span>'; }
         }
 
         function renderKBList(bases) {
             if (!bases || bases.length === 0) {
-                kbSelector.innerHTML = '<span style="font-size:0.75rem;color:#a0aec0;">保存済みナレッジベースなし</span>';
+                kbSelector.innerHTML = '<span style="font-size:0.7rem;color:var(--text-light);">保存済みナレッジベースなし</span>';
                 return;
             }
             kbSelector.innerHTML = bases.map(kb => `
@@ -598,67 +385,46 @@
             addMessage('system', `"${name}" を読み込み中...`);
             try {
                 const res = await fetch('/api/knowledge/load', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name }),
                 });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 currentKBName = name;
                 documents = data.documents.map(d => ({ name: d, chunks: '?', processing: false }));
-                conversationId = 'conv-' + Date.now();
-                chatHistory = [];
-                renderDocuments();
-                statsBadge.textContent = `ドキュメント: ${data.total_documents}件`;
-                addMessage('system', data.message);
-                loadKBList();
-            } catch (err) {
-                addMessage('error', `読み込みエラー: ${err.message}`);
-            }
+                conversationId = 'conv-' + Date.now(); chatHistory = [];
+                renderDocuments(); statsBadge.textContent = `ドキュメント: ${data.total_documents}件`;
+                addMessage('system', data.message); loadKBList();
+            } catch (err) { addMessage('error', `読み込みエラー: ${err.message}`); }
         }
 
         async function saveKB() {
             const name = kbNameInput.value.trim();
             if (!name) { alert('名前を入力してください'); return; }
-            kbSaveBtn.disabled = true;
-            kbSaveBtn.textContent = '保存中...';
+            kbSaveBtn.disabled = true; kbSaveBtn.textContent = '...';
             try {
                 const res = await fetch('/api/knowledge/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name }),
                 });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
-                currentKBName = name;
-                addMessage('system', data.message);
-                kbNameInput.value = '';
-                loadKBList();
-            } catch (err) {
-                addMessage('error', `保存エラー: ${err.message}`);
-            } finally {
-                kbSaveBtn.disabled = false;
-                kbSaveBtn.textContent = '保存';
-            }
+                currentKBName = name; addMessage('system', data.message); kbNameInput.value = ''; loadKBList();
+            } catch (err) { addMessage('error', `保存エラー: ${err.message}`); }
+            finally { kbSaveBtn.disabled = false; kbSaveBtn.textContent = '保存'; }
         }
 
         async function appendKB() {
             if (!currentKBName) return;
             if (!confirm(`"${currentKBName}" に新しいファイルを追加保存しますか？`)) return;
-
             try {
                 const res = await fetch('/api/knowledge/append', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: currentKBName }),
                 });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
-                const data = await res.json();
-                addMessage('system', data.message);
-                loadKBList();
-            } catch (err) {
-                addMessage('error', `追加保存エラー: ${err.message}`);
-            }
+                const data = await res.json(); addMessage('system', data.message); loadKBList();
+            } catch (err) { addMessage('error', `追加保存エラー: ${err.message}`); }
         }
 
         async function deleteKB(name) {
@@ -667,23 +433,15 @@
                 const res = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 if (currentKBName === name) currentKBName = '';
-                addMessage('system', `"${name}" を削除しました。`);
-                loadKBList();
-            } catch (err) {
-                addMessage('error', `削除エラー: ${err.message}`);
-            }
+                addMessage('system', `"${name}" を削除しました。`); loadKBList();
+            } catch (err) { addMessage('error', `削除エラー: ${err.message}`); }
         }
 
         // --- Init ---
         async function loadStats() {
-            try {
-                const res = await fetch('/api/stats');
-                if (res.ok) { const data = await res.json(); statsBadge.textContent = `ドキュメント: ${data.total_documents}件`; }
-            } catch (e) {}
+            try { const res = await fetch('/api/stats'); if (res.ok) { const data = await res.json(); statsBadge.textContent = `ドキュメント: ${data.total_documents}件`; } } catch (e) {}
         }
-
-        loadStats();
-        loadKBList();
+        loadStats(); loadKBList();
     </script>
 </body>
 </html>

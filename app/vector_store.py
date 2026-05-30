@@ -142,6 +142,25 @@ class VectorStore:
             "documents": list(sources),
         }
 
+    def remove_document(self, source_filename: str) -> int:
+        """Remove all chunks from a specific source file.
+
+        Returns the number of chunks removed.
+        """
+        indices_to_keep = [
+            i for i, m in enumerate(self.metadata) if m["source"] != source_filename
+        ]
+        removed = len(self.chunks) - len(indices_to_keep)
+
+        if removed == 0:
+            return 0
+
+        self.chunks = [self.chunks[i] for i in indices_to_keep]
+        self.metadata = [self.metadata[i] for i in indices_to_keep]
+        self.embeddings = [self.embeddings[i] for i in indices_to_keep]
+
+        return removed
+
     def clear(self) -> None:
         """Clear all data from the store."""
         self.chunks = []
