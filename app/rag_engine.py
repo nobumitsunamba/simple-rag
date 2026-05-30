@@ -26,16 +26,24 @@ class RAGEngine:
             return {
                 "answer": "ドキュメントがまだアップロードされていないか、関連する情報が見つかりませんでした。先にドキュメントをアップロードしてください。",
                 "sources": [],
+                "confidence": 0,
                 "conversation_id": conversation_id,
             }
 
-        # Build context from retrieved chunks
+        # Calculate confidence from search scores
+        avg_score = sum(r["score"] for r in results) / len(results)
+        max_score = max(r["score"] for r in results)
+        confidence = round(max_score * 100, 1)
+
+        # Build context from retrieved chunks with page info
         context_parts = []
         sources = []
         for r in results:
-            context_parts.append(f"[出典: {r['source']}]\n{r['text']}")
-            if r["source"] not in sources:
-                sources.append(r["source"])
+            page_info = f" (p.{r['page']})" if r.get("page") else ""
+            context_parts.append(f"[出典: {r['source']}{page_info}]\n{r['text']}")
+            source_entry = r["source"] + (f" p.{r['page']}" if r.get("page") else "")
+            if source_entry not in sources:
+                sources.append(source_entry)
 
         context = "\n\n---\n\n".join(context_parts)
 
@@ -84,6 +92,7 @@ class RAGEngine:
         return {
             "answer": answer,
             "sources": sources,
+            "confidence": confidence,
             "conversation_id": conversation_id,
         }
 

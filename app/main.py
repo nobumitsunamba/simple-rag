@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .document_processor import extract_text, split_text
+from .document_processor import extract_text, extract_text_with_pages, split_text, split_text_with_pages
 from .knowledge_store import (
     save_knowledge_base,
     load_knowledge_base,
@@ -73,6 +73,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[str]
+    confidence: float
     conversation_id: str
 
 
@@ -111,23 +112,25 @@ class LoadRequest(BaseModel):
     name: str
 
 
-def _process_document_background(filename: str, text: str):
+def _process_document_background(filename: str, chunk_data: list[dict]):
     """Process document in background thread."""
     import time
     global processing_status
     try:
-        chunks = split_text(text)
-        processing_status[filename]["message"] = f"埋め込み生成中... (0/{len(chunks)}チャンク)"
+        total_chunks = len(chunk_data)
+        processing_status[filename]["message"] = f"埋め込み生成中... (0/{total_chunks}チャンク)"
 
         # Process in smaller batches to show progress and avoid throttling
         batch_size = 20
         total_added = 0
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            vector_store.add_documents(batch, filename)
+        for i in range(0, total_chunks, batch_size):
+            batch = chunk_data[i:i + batch_size]
+            chunks = [c["text"] for c in batch]
+            pages = [c["page"] for c in batch]
+            vector_store.add_documents(chunks, filename, pages)
             total_added += len(batch)
             processing_status[filename]["chunks_added"] = total_added
-            processing_status[filename]["message"] = f"埋め込み生成中... ({total_added}/{len(chunks)}チャンク)"
+            processing_status[filename]["message"] = f"埋め込み生成中... ({total_added}/{total_chunks}チャンク)"
 
         processing_status[filename]["status"] = "completed"
         processing_status[filename]["message"] = f"'{filename}' を処理しました。{total_added}個のチャンクを追加しました。"
@@ -142,17 +145,17 @@ async def upload_document(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="ファイル名が必要です。")
 
-    allowed_extensions = {".pdf", ".docx", ".doc"}
+    allowed_extensions = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".csv", ".txt", ".md"}
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail=f"サポートされていないファイル形式です。対応形式: {', '.join(allowed_extensions)}",
+            detail=f"サポートされていないファイル形式です。対応形式: {', '.join(sorted(allowed_extensions))}",
         )
 
     try:
         content = await file.read()
-        text = extract_text(file.filename, content)
+        text, page_map = extract_text_with_pages(file.filename, content)
 
         if not text.strip():
             raise HTTPException(
@@ -160,8 +163,8 @@ async def upload_document(file: UploadFile = File(...)):
                 detail="ファイルからテキストを抽出できませんでした。",
             )
 
-        chunks = split_text(text)
-        num_chunks = len(chunks)
+        chunk_data = split_text_with_pages(text, page_map)
+        num_chunks = len(chunk_data)
 
         if num_chunks > 100:
             # Large file: process in background
@@ -173,7 +176,7 @@ async def upload_document(file: UploadFile = File(...)):
             }
             thread = threading.Thread(
                 target=_process_document_background,
-                args=(file.filename, text),
+                args=(file.filename, chunk_data),
                 daemon=True,
             )
             thread.start()
@@ -186,7 +189,9 @@ async def upload_document(file: UploadFile = File(...)):
             )
         else:
             # Small file: process immediately
-            added = vector_store.add_documents(chunks, file.filename)
+            chunks = [c["text"] for c in chunk_data]
+            pages = [c["page"] for c in chunk_data]
+            added = vector_store.add_documents(chunks, file.filename, pages)
             return UploadResponse(
                 filename=file.filename,
                 chunks_added=added,
@@ -221,7 +226,7 @@ async def chat(request: ChatRequest):
 
     try:
         result = rag_engine.generate_answer(request.question, request.conversation_id)
-        return ChatResponse(answer=result["answer"], sources=result["sources"], conversation_id=result["conversation_id"])
+        return ChatResponse(answer=result["answer"], sources=result["sources"], confidence=result["confidence"], conversation_id=result["conversation_id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"回答生成中にエラーが発生しました: {str(e)}")
 

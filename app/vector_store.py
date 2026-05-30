@@ -73,7 +73,7 @@ class VectorStore:
             return 0.0
         return dot / (mag_a * mag_b)
 
-    def add_documents(self, chunks: list[str], source_filename: str) -> int:
+    def add_documents(self, chunks: list[str], source_filename: str, pages: list[int | None] = None) -> int:
         """Add document chunks to the store.
 
         Returns the number of chunks added.
@@ -86,9 +86,14 @@ class VectorStore:
 
         self.chunks.extend(chunks)
         self.embeddings.extend(new_embeddings)
-        self.metadata.extend(
-            [{"source": source_filename, "chunk_index": i} for i in range(len(chunks))]
-        )
+
+        for i in range(len(chunks)):
+            page = pages[i] if pages and i < len(pages) else None
+            self.metadata.append({
+                "source": source_filename,
+                "chunk_index": i,
+                "page": page,
+            })
 
         return len(chunks)
 
@@ -125,6 +130,7 @@ class VectorStore:
                     "text": self.chunks[idx],
                     "source": source,
                     "score": score,
+                    "page": self.metadata[idx].get("page"),
                 }
             )
             source_counts[source] = source_counts.get(source, 0) + 1
