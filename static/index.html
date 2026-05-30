@@ -304,7 +304,9 @@
         }
 
         async function pollProcessingStatus(filename) {
+            let completed = false;
             const interval = setInterval(async () => {
+                if (completed) return;
                 try {
                     const res = await fetch(`/api/processing/${encodeURIComponent(filename)}`);
                     if (!res.ok) { clearInterval(interval); return; }
@@ -312,8 +314,8 @@
                     const doc = documents.find(d => d.name === filename);
                     if (doc) { doc.chunks = data.chunks_added; if (data.status === 'completed') doc.processing = false; renderDocuments(); }
                     uploadStatus.textContent = data.message;
-                    if (data.status === 'completed') { clearInterval(interval); uploadProgress.classList.remove('visible'); addMessage('system', data.message); }
-                    else if (data.status === 'error') { clearInterval(interval); uploadProgress.classList.remove('visible'); addMessage('error', data.message); }
+                    if (data.status === 'completed') { completed = true; clearInterval(interval); uploadProgress.classList.remove('visible'); addMessage('system', data.message); }
+                    else if (data.status === 'error') { completed = true; clearInterval(interval); uploadProgress.classList.remove('visible'); addMessage('error', data.message); }
                     else { uploadProgress.classList.add('visible'); }
                 } catch (e) { clearInterval(interval); uploadProgress.classList.remove('visible'); }
             }, 2000);
