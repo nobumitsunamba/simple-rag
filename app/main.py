@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .document_processor import extract_text, extract_text_with_pages, split_text, split_text_with_pages
+from .auth import sign_up, confirm_sign_up, sign_in, verify_token
 from .knowledge_store import (
     save_knowledge_base,
     load_knowledge_base,
@@ -442,5 +443,71 @@ async def export_chat_to_word(request: ExportRequest):
 async def serve_ui():
     """Serve the chat UI."""
     ui_path = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
+    with open(ui_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+# --- Auth ---
+
+class SignUpRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ConfirmRequest(BaseModel):
+    email: str
+    code: str
+
+
+class SignInRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/signup")
+async def api_sign_up(request: SignUpRequest):
+    try:
+        result = sign_up(request.email, request.password)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/auth/confirm")
+async def api_confirm(request: ConfirmRequest):
+    try:
+        result = confirm_sign_up(request.email, request.code)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/auth/signin")
+async def api_sign_in(request: SignInRequest):
+    try:
+        result = sign_in(request.email, request.password)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@app.get("/api/auth/me")
+async def api_get_me(authorization: str = ""):
+    """Get current user info from token."""
+    from fastapi import Header
+    # Token is passed via query param or header
+    token = authorization.replace("Bearer ", "") if authorization else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="認証が必要です。")
+    user = verify_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="トークンが無効です。")
+    return user
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def serve_login():
+    """Serve the login page."""
+    ui_path = os.path.join(os.path.dirname(__file__), "..", "static", "login.html")
     with open(ui_path, "r", encoding="utf-8") as f:
         return f.read()

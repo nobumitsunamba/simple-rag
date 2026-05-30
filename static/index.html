@@ -149,6 +149,7 @@
             <span class="header-badge" id="llm-badge">LLM: Claude Sonnet 4.6</span>
             <span class="header-badge" id="stats-badge">ドキュメント: 0件</span>
             <button class="theme-toggle" id="theme-toggle" title="テーマ切替">🌙</button>
+            <button class="theme-toggle" id="logout-btn" title="ログアウト">🚪</button>
         </div>
     </header>
     <div class="main-container">
@@ -194,6 +195,9 @@
         </main>
     </div>
     <script>
+        // Auth check
+        if (!localStorage.getItem('access_token')) { window.location.href = '/login'; }
+
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
         const uploadProgress = document.getElementById('upload-progress');
@@ -229,6 +233,15 @@
             setTheme(current === 'dark' ? 'light' : 'dark');
         });
         setTheme(localStorage.getItem('theme') || 'light');
+
+        // Logout
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            if (confirm('ログアウトしますか？')) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user_email');
+                window.location.href = '/login';
+            }
+        });
         // --- Upload ---
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });

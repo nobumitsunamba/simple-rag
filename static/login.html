@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple RAG - ログイン</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+            background: #f5f7fa; height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .login-card {
+            background: white; border-radius: 16px; padding: 40px; width: 380px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .login-card h1 { font-size: 1.3rem; text-align: center; margin-bottom: 8px; }
+        .login-card p { font-size: 0.8rem; color: #718096; text-align: center; margin-bottom: 24px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.75rem; color: #4a5568; margin-bottom: 4px; }
+        .form-group input {
+            width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+            font-size: 0.85rem; outline: none;
+        }
+        .form-group input:focus { border-color: rgb(50, 168, 170); }
+        .btn-primary {
+            width: 100%; padding: 12px; background: rgb(50, 168, 170); color: white;
+            border: none; border-radius: 8px; font-size: 0.9rem; cursor: pointer; margin-top: 8px;
+        }
+        .btn-primary:hover { background: rgb(40, 148, 150); }
+        .btn-primary:disabled { background: #a0aec0; cursor: not-allowed; }
+        .toggle-link { text-align: center; margin-top: 16px; font-size: 0.8rem; }
+        .toggle-link a { color: rgb(50, 168, 170); cursor: pointer; text-decoration: none; }
+        .error-msg { background: #fed7d7; color: #c53030; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 12px; display: none; }
+        .success-msg { background: #c6f6d5; color: #276749; padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 12px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1>📚 Simple RAG</h1>
+        <p>ドキュメントQ&Aシステム</p>
+
+        <div class="error-msg" id="error-msg"></div>
+        <div class="success-msg" id="success-msg"></div>
+
+        <!-- Sign In Form -->
+        <div id="signin-form">
+            <div class="form-group">
+                <label>メールアドレス</label>
+                <input type="email" id="signin-email" placeholder="example@company.co.jp" />
+            </div>
+            <div class="form-group">
+                <label>パスワード</label>
+                <input type="password" id="signin-password" placeholder="パスワード" />
+            </div>
+            <button class="btn-primary" id="signin-btn">ログイン</button>
+            <div class="toggle-link"><a onclick="showForm('signup')">アカウント作成</a></div>
+        </div>
+
+        <!-- Sign Up Form -->
+        <div id="signup-form" style="display:none;">
+            <div class="form-group">
+                <label>メールアドレス</label>
+                <input type="email" id="signup-email" placeholder="example@company.co.jp" />
+            </div>
+            <div class="form-group">
+                <label>パスワード（8文字以上、大文字・小文字・数字）</label>
+                <input type="password" id="signup-password" placeholder="パスワード" />
+            </div>
+            <button class="btn-primary" id="signup-btn">アカウント作成</button>
+            <div class="toggle-link"><a onclick="showForm('signin')">ログインに戻る</a></div>
+        </div>
+
+        <!-- Confirm Form -->
+        <div id="confirm-form" style="display:none;">
+            <div class="form-group">
+                <label>確認コード（メールに送信されました）</label>
+                <input type="text" id="confirm-code" placeholder="6桁のコード" />
+            </div>
+            <button class="btn-primary" id="confirm-btn">確認</button>
+        </div>
+    </div>
+
+    <script>
+        let pendingEmail = '';
+
+        // Check if already logged in
+        if (localStorage.getItem('access_token')) {
+            window.location.href = '/';
+        }
+
+        function showForm(form) {
+            document.getElementById('signin-form').style.display = form === 'signin' ? 'block' : 'none';
+            document.getElementById('signup-form').style.display = form === 'signup' ? 'block' : 'none';
+            document.getElementById('confirm-form').style.display = form === 'confirm' ? 'block' : 'none';
+            hideMessages();
+        }
+
+        function showError(msg) { const el = document.getElementById('error-msg'); el.textContent = msg; el.style.display = 'block'; }
+        function showSuccess(msg) { const el = document.getElementById('success-msg'); el.textContent = msg; el.style.display = 'block'; }
+        function hideMessages() { document.getElementById('error-msg').style.display = 'none'; document.getElementById('success-msg').style.display = 'none'; }
+
+        // Sign In
+        document.getElementById('signin-btn').addEventListener('click', async () => {
+            hideMessages();
+            const email = document.getElementById('signin-email').value.trim();
+            const password = document.getElementById('signin-password').value;
+            if (!email || !password) { showError('メールアドレスとパスワードを入力してください。'); return; }
+
+            try {
+                const res = await fetch('/api/auth/signin', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password }),
+                });
+                if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+                const data = await res.json();
+                localStorage.setItem('access_token', data.access_token);
+                localStorage.setItem('user_email', email);
+                window.location.href = '/';
+            } catch (err) { showError(err.message); }
+        });
+
+        // Sign Up
+        document.getElementById('signup-btn').addEventListener('click', async () => {
+            hideMessages();
+            const email = document.getElementById('signup-email').value.trim();
+            const password = document.getElementById('signup-password').value;
+            if (!email || !password) { showError('メールアドレスとパスワードを入力してください。'); return; }
+
+            try {
+                const res = await fetch('/api/auth/signup', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password }),
+                });
+                if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+                pendingEmail = email;
+                showForm('confirm');
+                showSuccess('確認コードをメールに送信しました。');
+            } catch (err) { showError(err.message); }
+        });
+
+        // Confirm
+        document.getElementById('confirm-btn').addEventListener('click', async () => {
+            hideMessages();
+            const code = document.getElementById('confirm-code').value.trim();
+            if (!code) { showError('確認コードを入力してください。'); return; }
+
+            try {
+                const res = await fetch('/api/auth/confirm', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: pendingEmail, code }),
+                });
+                if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
+                showForm('signin');
+                showSuccess('アカウントが確認されました。ログインしてください。');
+            } catch (err) { showError(err.message); }
+        });
+
+        // Enter key support
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const form = input.closest('[id$="-form"]');
+                    form.querySelector('.btn-primary').click();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

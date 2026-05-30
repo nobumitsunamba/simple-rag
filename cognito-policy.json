@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cognito-idp:SignUp",
+        "cognito-idp:ConfirmSignUp",
+        "cognito-idp:InitiateAuth",
+        "cognito-idp:GetUser"
+      ],
+      "Resource": "arn:aws:cognito-idp:ap-northeast-1:032401368831:userpool/ap-northeast-1_xVcjer1Dr"
+    }
+  ]
+}
