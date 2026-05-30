@@ -92,8 +92,13 @@ class VectorStore:
 
         return len(chunks)
 
-    def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search for the most relevant chunks given a query."""
+    def search(self, query: str, top_k: int = 10, max_per_source: int = 3) -> list[dict]:
+        """Search for the most relevant chunks given a query.
+
+        Returns results from multiple sources for diversity.
+        top_k: total number of candidates to consider
+        max_per_source: max chunks from a single source file
+        """
         if not self.chunks:
             return []
 
@@ -106,16 +111,25 @@ class VectorStore:
 
         scores.sort(key=lambda x: x[0], reverse=True)
 
+        # Diversify results: limit per source
         results = []
-        for score, idx in scores[:top_k]:
-            if score > 0:
-                results.append(
-                    {
-                        "text": self.chunks[idx],
-                        "source": self.metadata[idx]["source"],
-                        "score": score,
-                    }
-                )
+        source_counts: dict[str, int] = {}
+        for score, idx in scores:
+            if score <= 0:
+                continue
+            source = self.metadata[idx]["source"]
+            if source_counts.get(source, 0) >= max_per_source:
+                continue
+            results.append(
+                {
+                    "text": self.chunks[idx],
+                    "source": source,
+                    "score": score,
+                }
+            )
+            source_counts[source] = source_counts.get(source, 0) + 1
+            if len(results) >= top_k:
+                break
 
         return results
 
