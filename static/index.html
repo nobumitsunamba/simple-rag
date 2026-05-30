@@ -135,10 +135,21 @@
             border: 1px solid var(--border); border-radius: 18px; font-size: 0.7rem; cursor: pointer; white-space: nowrap;
         }
         .export-btn:hover { background: var(--border); }
+        #send-btn .btn-text { display: inline; }
+        #send-btn .btn-icon { display: none; }
         @media (max-width: 768px) {
             .main-container { flex-direction: column; }
             .sidebar { width: 100%; max-height: 250px; border-right: none; border-bottom: 1px solid var(--border); }
             .message { max-width: 90%; }
+            .header-badge { display: none; }
+            .chat-input-area { padding: 8px 12px; }
+            .chat-input-area input { padding: 9px 12px; font-size: 0.85rem; }
+            .chat-input-area button { padding: 9px 12px; font-size: 0.85rem; }
+            .export-btn { display: none; }
+            #send-btn .btn-text { display: none; }
+            #send-btn .btn-icon { display: inline; }
+            #send-btn { padding: 9px 14px; min-width: auto; }
+            .mobile-info { display: block !important; }
         }
     </style>
 </head>
@@ -182,6 +193,11 @@
             </div>
             <div style="flex:1;"></div>
             <div class="sidebar-section" style="border-bottom:none;">
+                <div class="mobile-info" style="display:none;font-size:0.7rem;color:var(--text-muted);margin-bottom:8px;">
+                    <div>LLM: Claude Sonnet 4.6</div>
+                    <div id="sidebar-user-email"></div>
+                    <button class="export-btn" id="export-btn-mobile" style="margin-top:6px;display:block;width:100%;text-align:center;">エクスポート</button>
+                </div>
                 <button class="clear-btn" id="clear-btn" style="display:none;">セッションをクリア</button>
             </div>
         </aside>
@@ -192,7 +208,7 @@
             <div class="typing-indicator" id="typing-indicator"><span></span><span></span><span></span></div>
             <div class="chat-input-area">
                 <input type="text" id="chat-input" placeholder="質問を入力..." autocomplete="off" />
-                <button id="send-btn">送信</button>
+                <button id="send-btn"><span class="btn-text">送信</span><span class="btn-icon">→</span></button>
                 <button class="export-btn" id="export-btn" title="チャット履歴をWordでエクスポート">エクスポート</button>
             </div>
         </main>
@@ -227,6 +243,14 @@
 
         // Show user email in header
         document.getElementById('user-badge').textContent = localStorage.getItem('user_email') || '';
+        // Show user email in sidebar (mobile)
+        const sidebarEmail = document.getElementById('sidebar-user-email');
+        if (sidebarEmail) sidebarEmail.textContent = localStorage.getItem('user_email') || '';
+        // Mobile export button
+        const exportBtnMobile = document.getElementById('export-btn-mobile');
+        if (exportBtnMobile) {
+            exportBtnMobile.addEventListener('click', () => exportBtn.click());
+        }
 
         // --- Theme ---
         function setTheme(theme) {
