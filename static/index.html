@@ -34,8 +34,8 @@
         header h1 { font-size: 1rem; font-weight: 600; }
         .header-actions { display: flex; gap: 10px; align-items: center; }
         .header-badge {
-            background: rgba(255,255,255,0.1); padding: 4px 10px;
-            border-radius: 12px; font-size: 0.7rem; color: #a0aec0;
+            background: rgba(255,255,255,0.2); padding: 4px 10px;
+            border-radius: 12px; font-size: 0.7rem; color: white;
         }
         .theme-toggle {
             background: none; border: none; color: #a0aec0; cursor: pointer;
@@ -146,8 +146,8 @@
     <header>
         <h1>📚 Simple RAG</h1>
         <div class="header-actions">
-            <span class="header-badge" id="llm-badge">LLM: Claude Sonnet 4.6</span>
-            <span class="header-badge" id="stats-badge">ドキュメント: 0件</span>
+            <span class="header-badge" id="llm-badge">Claude Sonnet 4.6</span>
+            <span class="header-badge" id="user-badge"></span>
             <button class="theme-toggle" id="theme-toggle" title="テーマ切替">🌙</button>
             <button class="theme-toggle" id="logout-btn" title="ログアウト">🚪</button>
         </div>
@@ -161,8 +161,8 @@
                     <input type="text" id="kb-name-input" placeholder="名前を付けて保存..." />
                     <button class="btn-sm btn-save" id="kb-save-btn">保存</button>
                 </div>
-                <button class="btn-append" id="kb-append-btn" style="display:none;">現在のナレッジベースに追加保存</button>
-                <button class="btn-append" id="kb-overwrite-btn" style="display:none;background:#e53e3e;">上書き保存</button>
+                <button class="btn-append" id="kb-append-btn" style="display:none;">現在のナレッジベースに追加</button>
+                <button class="btn-append" id="kb-overwrite-btn" style="display:none;background:#e53e3e;opacity:0.5;cursor:not-allowed;" disabled>保存</button>
             </div>
             <div class="sidebar-section">
                 <h2>📄 ファイルアップロード</h2>
@@ -179,6 +179,9 @@
                     <div class="upload-status" id="upload-status">アップロード中...</div>
                 </div>
                 <div class="document-list" id="document-list"></div>
+            </div>
+            <div style="flex:1;"></div>
+            <div class="sidebar-section" style="border-bottom:none;">
                 <button class="clear-btn" id="clear-btn" style="display:none;">セッションをクリア</button>
             </div>
         </aside>
@@ -190,7 +193,7 @@
             <div class="chat-input-area">
                 <input type="text" id="chat-input" placeholder="質問を入力..." autocomplete="off" />
                 <button id="send-btn">送信</button>
-                <button class="export-btn" id="export-btn" title="チャット履歴をWordでエクスポート">📥 エクスポート</button>
+                <button class="export-btn" id="export-btn" title="チャット履歴をWordでエクスポート">エクスポート</button>
             </div>
         </main>
     </div>
@@ -209,7 +212,6 @@
         const sendBtn = document.getElementById('send-btn');
         const exportBtn = document.getElementById('export-btn');
         const typingIndicator = document.getElementById('typing-indicator');
-        const statsBadge = document.getElementById('stats-badge');
         const kbSelector = document.getElementById('kb-selector');
         const kbNameInput = document.getElementById('kb-name-input');
         const kbSaveBtn = document.getElementById('kb-save-btn');
@@ -221,6 +223,10 @@
         let conversationId = 'conv-' + Date.now();
         let chatHistory = [];
         let currentKBName = '';
+        let hasUnsavedChanges = false;
+
+        // Show user email in header
+        document.getElementById('user-badge').textContent = localStorage.getItem('user_email') || '';
 
         // --- Theme ---
         function setTheme(theme) {
@@ -262,9 +268,11 @@
                 const data = await res.json();
                 if (data.status === 'processing') {
                     documents.push({ name: data.filename, chunks: 0, processing: true });
+                    hasUnsavedChanges = true;
                     renderDocuments(); addMessage('system', data.message); pollProcessingStatus(data.filename);
                 } else {
                     documents.push({ name: data.filename, chunks: data.chunks_added, processing: false });
+                    hasUnsavedChanges = true;
                     renderDocuments(); addMessage('system', data.message);
                 }
             } catch (err) { addMessage('error', `エラー: ${err.message}`); }
@@ -296,9 +304,18 @@
                 </div>
             `).join('');
             clearBtn.style.display = documents.length > 0 ? 'block' : 'none';
-            statsBadge.textContent = `ドキュメント: ${documents.length}件`;
             kbAppendBtn.style.display = (currentKBName && documents.length > 0) ? 'block' : 'none';
             kbOverwriteBtn.style.display = currentKBName ? 'block' : 'none';
+            // Enable/disable overwrite button based on unsaved changes
+            if (hasUnsavedChanges && currentKBName) {
+                kbOverwriteBtn.disabled = false;
+                kbOverwriteBtn.style.opacity = '1';
+                kbOverwriteBtn.style.cursor = 'pointer';
+            } else {
+                kbOverwriteBtn.disabled = true;
+                kbOverwriteBtn.style.opacity = '0.5';
+                kbOverwriteBtn.style.cursor = 'not-allowed';
+            }
         }
 
         async function removeDoc(filename) {
@@ -308,6 +325,7 @@
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 documents = documents.filter(d => d.name !== filename);
+                hasUnsavedChanges = true;
                 renderDocuments();
                 addMessage('system', data.message);
             } catch (err) { addMessage('error', `削除エラー: ${err.message}`); }
@@ -413,6 +431,8 @@
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 addMessage('system', `"${currentKBName}" を上書き保存しました。`);
+                hasUnsavedChanges = false;
+                renderDocuments();
                 loadKBList();
             } catch (err) { addMessage('error', `上書き保存エラー: ${err.message}`); }
         }
@@ -451,7 +471,8 @@
                 currentKBName = name;
                 documents = data.documents.map(d => ({ name: d, chunks: '?', processing: false }));
                 conversationId = 'conv-' + Date.now(); chatHistory = [];
-                renderDocuments(); statsBadge.textContent = `ドキュメント: ${data.total_documents}件`;
+                hasUnsavedChanges = false;
+                renderDocuments();
                 addMessage('system', data.message); loadKBList();
             } catch (err) { addMessage('error', `読み込みエラー: ${err.message}`); }
         }
@@ -496,10 +517,7 @@
         }
 
         // --- Init ---
-        async function loadStats() {
-            try { const res = await fetch('/api/stats'); if (res.ok) { const data = await res.json(); statsBadge.textContent = `ドキュメント: ${data.total_documents}件`; } } catch (e) {}
-        }
-        loadStats(); loadKBList();
+        loadKBList();
     </script>
 </body>
 </html>
