@@ -109,6 +109,7 @@ class ProcessingStatusResponse(BaseModel):
 
 class SaveRequest(BaseModel):
     name: str
+    group: str = ""
 
 
 class KnowledgeBaseInfo(BaseModel):
@@ -394,6 +395,7 @@ async def save_knowledge(request: SaveRequest):
             chunks=vector_store.chunks,
             metadata=vector_store.metadata,
             embeddings=vector_store.embeddings,
+            group=request.group,
         )
         return {
             "message": f"ナレッジベース '{request.name}' を保存しました（{result['total_chunks']}チャンク、{result['total_documents']}ファイル）。",
@@ -468,6 +470,7 @@ async def append_to_knowledge(request: LoadRequest):
             chunks=merged_chunks,
             metadata=merged_metadata,
             embeddings=merged_embeddings,
+            group=request.group,
         )
 
         # Update current session with merged data
