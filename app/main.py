@@ -500,9 +500,24 @@ async def list_knowledge():
 
 @app.delete("/api/knowledge/{name}")
 async def delete_knowledge(name: str):
-    """Delete a saved knowledge base."""
+    """Delete a saved knowledge base (ungrouped)."""
     try:
         success = delete_knowledge_base(name)
+        if success:
+            return {"message": f"ナレッジベース '{name}' を削除しました。"}
+        else:
+            raise HTTPException(status_code=404, detail=f"ナレッジベース '{name}' が見つかりません。")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"削除中にエラーが発生しました: {str(e)}")
+
+
+@app.delete("/api/knowledge/{group}/{name}")
+async def delete_knowledge_in_group(group: str, name: str):
+    """Delete a saved knowledge base in a group."""
+    try:
+        success = delete_knowledge_base(name, group)
         if success:
             return {"message": f"ナレッジベース '{name}' を削除しました。"}
         else:

@@ -713,9 +713,12 @@
         async function deleteKB(name, group) {
             if (!confirm(`"${name}" を削除しますか？`)) return;
             try {
-                const res = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' });
+                const url = group
+                    ? `/api/knowledge/${encodeURIComponent(group)}/${encodeURIComponent(name)}`
+                    : `/api/knowledge/${encodeURIComponent(name)}`;
+                const res = await fetch(url, { method: 'DELETE' });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
-                if (currentKBName === name) currentKBName = '';
+                if (currentKBName === name) { currentKBName = ''; currentKBGroup = ''; }
                 addMessage('system', `"${name}" を削除しました。`); loadKBList();
             } catch (err) { addMessage('error', `削除エラー: ${err.message}`); }
         }
