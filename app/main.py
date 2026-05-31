@@ -120,6 +120,7 @@ class KnowledgeBaseInfo(BaseModel):
 
 class LoadRequest(BaseModel):
     name: str
+    group: str = ""
 
 
 def _process_document_background(filename: str, chunk_data: list[dict]):
@@ -409,7 +410,7 @@ async def load_knowledge(request: LoadRequest):
         raise HTTPException(status_code=400, detail="ナレッジベース名を入力してください。")
 
     try:
-        data = load_knowledge_base(request.name.strip())
+        data = load_knowledge_base(request.name.strip(), request.group)
         if data is None:
             raise HTTPException(status_code=404, detail=f"ナレッジベース '{request.name}' が見つかりません。")
 
@@ -452,7 +453,7 @@ async def append_to_knowledge(request: LoadRequest):
 
     try:
         # Load existing data
-        data = load_knowledge_base(request.name.strip())
+        data = load_knowledge_base(request.name.strip(), request.group)
         if data is None:
             raise HTTPException(status_code=404, detail=f"ナレッジベース '{request.name}' が見つかりません。")
 

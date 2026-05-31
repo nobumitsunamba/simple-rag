@@ -595,9 +595,9 @@
                         <span style="cursor:pointer;opacity:0.5;font-size:0.6rem;" onclick="deleteGroupUI('${group}')">✕</span>
                     </div>`;
                 for (const kb of items) {
-                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','${kb.group}')" style="margin-left:12px;">
-                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','${kb.group}')" title="ダブルクリックで名前変更">${kb.name}</span>
-                        <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','${kb.group}')">✕</span>
+                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}','${group}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','${group}')" style="margin-left:12px;">
+                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','${group}')" title="ダブルクリックで名前変更">${kb.name}</span>
+                        <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','${group}')">✕</span>
                     </div>`;
                 }
                 html += `</div>`;
@@ -606,7 +606,7 @@
             if (ungrouped.length > 0) {
                 html += `<div style="width:100%;" ondragover="event.preventDefault()" ondrop="dropKB(event,'')">`;
                 for (const kb of ungrouped) {
-                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','')">
+                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}','')" draggable="true" ondragstart="dragKB(event,'${kb.name}','')">
                         📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','')" title="ダブルクリックで名前変更">${kb.name}</span>
                         <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','')">✕</span>
                     </div>`;
@@ -655,12 +655,13 @@
             fetch(`/api/knowledge/groups/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(() => loadKBList());
         }
 
-        async function selectKB(name) {
+        async function selectKB(name, group) {
+            group = group || '';
             addMessage('system', `"${name}" を読み込み中...`);
             try {
                 const res = await fetch('/api/knowledge/load', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name }),
+                    body: JSON.stringify({ name, group }),
                 });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
