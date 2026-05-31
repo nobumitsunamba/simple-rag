@@ -23,6 +23,13 @@ from .knowledge_store import (
     load_knowledge_base,
     list_knowledge_bases,
     delete_knowledge_base,
+    save_uploaded_file,
+    get_file_download_url,
+    rename_knowledge_base,
+    list_groups,
+    create_group,
+    rename_group,
+    delete_group,
 )
 from .rag_engine import RAGEngine
 from .vector_store import VectorStore
@@ -158,6 +165,10 @@ async def upload_document(file: UploadFile = File(...)):
 
     try:
         content = await file.read()
+
+        # Save original file to S3 for later download
+        save_uploaded_file(file.filename, content)
+
         text, page_map = extract_text_with_pages(file.filename, content)
 
         if not text.strip():
@@ -615,6 +626,80 @@ async def api_get_me(authorization: str = ""):
     if not user:
         raise HTTPException(status_code=401, detail="トークンが無効です。")
     return user
+
+
+@app.get("/api/file/{filename}")
+async def get_file_url(filename: str):
+    """Get a presigned download URL for an uploaded file."""
+    url = get_file_download_url(filename)
+    if not url:
+        raise HTTPException(status_code=404, detail="ファイルが見つかりません。")
+    return {"url": url, "filename": filename}
+
+
+# --- Group Management ---
+
+class GroupRequest(BaseModel):
+    name: str
+
+
+class RenameRequest(BaseModel):
+    old_name: str
+    new_name: str
+    old_group: str = ""
+    new_group: str = ""
+
+
+@app.get("/api/knowledge/groups")
+async def api_list_groups():
+    """List all knowledge base groups."""
+    groups = list_groups()
+    return {"groups": groups}
+
+
+@app.post("/api/knowledge/groups")
+async def api_create_group(request: GroupRequest):
+    """Create a new group."""
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="グループ名を入力してください。")
+    create_group(request.name.strip())
+    return {"message": f"グループ '{request.name}' を作成しました。"}
+
+
+@app.put("/api/knowledge/groups/rename")
+async def api_rename_group(request: RenameRequest):
+    """Rename a group."""
+    success = rename_group(request.old_name, request.new_name)
+    if not success:
+        raise HTTPException(status_code=404, detail="グループが見つかりません。")
+    return {"message": f"グループ名を '{request.new_name}' に変更しました。"}
+
+
+@app.delete("/api/knowledge/groups/{name}")
+async def api_delete_group(name: str):
+    """Delete a group and all its knowledge bases."""
+    success = delete_group(name)
+    if not success:
+        raise HTTPException(status_code=404, detail="グループが見つかりません。")
+    return {"message": f"グループ '{name}' を削除しました。"}
+
+
+@app.put("/api/knowledge/rename")
+async def api_rename_knowledge(request: RenameRequest):
+    """Rename or move a knowledge base."""
+    success = rename_knowledge_base(request.old_name, request.new_name, request.old_group, request.new_group)
+    if not success:
+        raise HTTPException(status_code=404, detail="ナレッジベースが見つかりません。")
+    return {"message": f"'{request.new_name}' に変更しました。"}
+
+
+@app.put("/api/knowledge/move")
+async def api_move_knowledge(request: RenameRequest):
+    """Move a knowledge base to a different group."""
+    success = rename_knowledge_base(request.old_name, request.old_name, request.old_group, request.new_group)
+    if not success:
+        raise HTTPException(status_code=404, detail="ナレッジベースが見つかりません。")
+    return {"message": f"'{request.old_name}' をグループ '{request.new_group}' に移動しました。"}
 
 
 @app.get("/login", response_class=HTMLResponse)

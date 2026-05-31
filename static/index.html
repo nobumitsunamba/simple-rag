@@ -167,6 +167,10 @@
         <aside class="sidebar">
             <div class="sidebar-section">
                 <h2>📁 ナレッジベース</h2>
+                <div style="display:flex;gap:4px;margin-bottom:8px;">
+                    <input type="text" id="group-name-input" placeholder="新規グループ..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.65rem;background:var(--input-bg);color:var(--text);" />
+                    <button class="btn-sm btn-save" id="group-create-btn" style="font-size:0.6rem;">+グループ</button>
+                </div>
                 <div class="kb-selector" id="kb-selector"><span style="font-size:0.7rem;color:var(--text-light);">読み込み中...</span></div>
                 <div class="kb-save-row">
                     <input type="text" id="kb-name-input" placeholder="名前を付けて保存..." />
@@ -324,7 +328,7 @@
             documentList.innerHTML = documents.map(doc => `
                 <div class="document-item">
                     <span>${doc.processing ? '⏳' : '📄'}</span>
-                    <span class="doc-name" title="${doc.name}">${doc.name}</span>
+                    <a class="doc-name" title="${doc.name}" href="#" onclick="openFile('${doc.name.replace(/'/g, "\\'")}');return false;" style="color:var(--accent);text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${doc.name}</a>
                     <span class="doc-chunks">${doc.processing ? '処理中...' : doc.chunks + 'チャンク'}</span>
                     ${!doc.processing ? `<button class="doc-delete" onclick="removeDoc('${doc.name.replace(/'/g, "\\'")}')">✕</button>` : ''}
                 </div>
@@ -344,6 +348,28 @@
                 kbOverwriteBtn.style.cursor = 'not-allowed';
                 kbOverwriteBtn.style.background = '#a0aec0';
             }
+        }
+
+        async function openFile(filename) {
+            try {
+                const res = await fetch(`/api/file/${encodeURIComponent(filename)}`);
+                if (!res.ok) { addMessage('error', 'ファイルを開けませんでした。'); return; }
+                const data = await res.json();
+                window.open(data.url, '_blank');
+            } catch (err) { addMessage('error', 'ファイルを開けませんでした。'); }
+        }
+
+        async function openFileAtPage(filename, page) {
+            try {
+                const res = await fetch(`/api/file/${encodeURIComponent(filename)}`);
+                if (!res.ok) { addMessage('error', 'ファイルを開けませんでした。'); return; }
+                const data = await res.json();
+                let url = data.url;
+                if (page && filename.toLowerCase().endsWith('.pdf')) {
+                    url += `#page=${page}`;
+                }
+                window.open(url, '_blank');
+            } catch (err) { addMessage('error', 'ファイルを開けませんでした。'); }
         }
 
         async function removeDoc(filename) {
@@ -426,9 +452,21 @@
                             if (data.confidence >= 70) meta += `\n\n✅ 確信度: ${data.confidence}%`;
                             else if (data.confidence >= 40) meta += `\n\n⚠️ 確信度: ${data.confidence}%（関連度が低い可能性があります）`;
                             else meta += `\n\n❌ 確信度: ${data.confidence}%（関連する情報が少ない可能性があります）`;
-                            if (data.sources && data.sources.length > 0) meta += `\n📎 出典: ${data.sources.join(', ')}`;
                             fullContent += meta;
                             msgDiv.textContent = fullContent;
+                            // Add source links
+                            if (data.sources && data.sources.length > 0) {
+                                const sourceDiv = document.createElement('div');
+                                sourceDiv.style.cssText = 'margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:0.7rem;color:var(--text-muted);';
+                                sourceDiv.innerHTML = '📎 出典: ' + data.sources.map(s => {
+                                    const match = s.match(/^(.+?)(?:\s+p\.(\d+))?$/);
+                                    const fname = match ? match[1] : s;
+                                    const page = match ? match[2] : null;
+                                    const pageParam = page ? `#page=${page}` : '';
+                                    return `<a href="#" onclick="openFileAtPage('${fname.replace(/'/g, "\\'")}', ${page || 'null'});return false;" style="color:var(--accent);text-decoration:underline;">${s}</a>`;
+                                }).join(', ');
+                                msgDiv.appendChild(sourceDiv);
+                            }
                             scrollToBottom();
                             addFeedbackButtons();
                             chatHistory.push({ role: 'assistant', content: fullContent });
@@ -526,12 +564,87 @@
                 kbSelector.innerHTML = '<span style="font-size:0.7rem;color:var(--text-light);">保存済みナレッジベースなし</span>';
                 return;
             }
-            kbSelector.innerHTML = bases.map(kb => `
-                <div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')">
-                    📁 ${kb.name}
-                    <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}')">✕</span>
-                </div>
-            `).join('');
+            // Group bases by group
+            const grouped = {};
+            const ungrouped = [];
+            for (const kb of bases) {
+                if (kb.group) {
+                    if (!grouped[kb.group]) grouped[kb.group] = [];
+                    grouped[kb.group].push(kb);
+                } else {
+                    ungrouped.push(kb);
+                }
+            }
+
+            let html = '';
+            // Render groups
+            for (const [group, items] of Object.entries(grouped)) {
+                html += `<div style="width:100%;margin-bottom:6px;">
+                    <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:3px;display:flex;align-items:center;gap:4px;">
+                        📂 <span ondblclick="renameGroupUI(this,'${group}')" style="cursor:pointer;">${group}</span>
+                        <span style="cursor:pointer;opacity:0.5;font-size:0.6rem;" onclick="deleteGroupUI('${group}')">✕</span>
+                    </div>`;
+                for (const kb of items) {
+                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','${kb.group}')">
+                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','${kb.group}')">${kb.name}</span>
+                        <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','${kb.group}')">✕</span>
+                    </div>`;
+                }
+                html += `</div>`;
+            }
+            // Render ungrouped
+            for (const kb of ungrouped) {
+                html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','')">
+                    📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','')">${kb.name}</span>
+                    <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','')">✕</span>
+                </div>`;
+            }
+            kbSelector.innerHTML = html;
+
+            // Add drop targets to groups
+            document.querySelectorAll('[data-group-drop]').forEach(el => {
+                el.addEventListener('dragover', e => e.preventDefault());
+                el.addEventListener('drop', e => dropKB(e, el.dataset.groupDrop));
+            });
+        }
+
+        let draggedKB = null;
+        function dragKB(e, name, group) { draggedKB = { name, group }; }
+
+        async function dropKB(e, targetGroup) {
+            e.preventDefault();
+            if (!draggedKB) return;
+            try {
+                await fetch('/api/knowledge/move', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_name: draggedKB.name, new_name: draggedKB.name, old_group: draggedKB.group, new_group: targetGroup }),
+                });
+                loadKBList();
+            } catch (e) {}
+            draggedKB = null;
+        }
+
+        function renameKBUI(el, oldName, group) {
+            const newName = prompt('新しい名前:', oldName);
+            if (!newName || newName === oldName) return;
+            fetch('/api/knowledge/rename', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_name: oldName, new_name: newName, old_group: group, new_group: group }),
+            }).then(() => { if (currentKBName === oldName) currentKBName = newName; loadKBList(); });
+        }
+
+        function renameGroupUI(el, oldName) {
+            const newName = prompt('新しいグループ名:', oldName);
+            if (!newName || newName === oldName) return;
+            fetch('/api/knowledge/groups/rename', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_name: oldName, new_name: newName }),
+            }).then(() => loadKBList());
+        }
+
+        function deleteGroupUI(name) {
+            if (!confirm(`グループ "${name}" とその中のナレッジベースをすべて削除しますか？`)) return;
+            fetch(`/api/knowledge/groups/${encodeURIComponent(name)}`, { method: 'DELETE' }).then(() => loadKBList());
         }
 
         async function selectKB(name) {
@@ -581,7 +694,7 @@
             } catch (err) { addMessage('error', `追加保存エラー: ${err.message}`); }
         }
 
-        async function deleteKB(name) {
+        async function deleteKB(name, group) {
             if (!confirm(`"${name}" を削除しますか？`)) return;
             try {
                 const res = await fetch(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' });
@@ -592,6 +705,17 @@
         }
 
         // --- Init ---
+        // Group management
+        document.getElementById('group-create-btn').addEventListener('click', async () => {
+            const name = document.getElementById('group-name-input').value.trim();
+            if (!name) return;
+            try {
+                await fetch('/api/knowledge/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+                document.getElementById('group-name-input').value = '';
+                loadKBList();
+            } catch (e) {}
+        });
+
         loadKBList();
     </script>
 </body>
