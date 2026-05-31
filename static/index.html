@@ -391,10 +391,10 @@
                 await fetch('/api/clear', { method: 'POST' });
                 documents = []; chatHistory = []; currentKBName = ''; conversationId = 'conv-' + Date.now();
                 hasUnsavedChanges = false;
-                renderDocuments(); kbAppendBtn.style.display = 'none';
+                renderDocuments(); kbAppendBtn.style.display = 'none'; kbOverwriteBtn.style.display = 'none';
+                loadKBList();
                 // Clear chat messages
                 chatMessages.innerHTML = '<div class="message system">ナレッジベースを選択するか、ドキュメントをアップロードして質問してください。</div>';
-                addMessage('system', 'セッションをクリアしました。');
             } catch (err) { addMessage('error', 'クリアに失敗しました。'); }
         });
         // --- Chat ---
@@ -552,15 +552,21 @@
 
         async function loadKBList() {
             try {
-                const res = await fetch('/api/knowledge/list');
-                if (!res.ok) return;
-                const data = await res.json();
-                renderKBList(data.knowledge_bases);
+                const [kbRes, groupRes] = await Promise.all([
+                    fetch('/api/knowledge/list'),
+                    fetch('/api/knowledge/groups'),
+                ]);
+                const kbData = kbRes.ok ? await kbRes.json() : { knowledge_bases: [] };
+                const groupData = groupRes.ok ? await groupRes.json() : { groups: [] };
+                renderKBList(kbData.knowledge_bases, groupData.groups);
             } catch (e) { kbSelector.innerHTML = '<span style="font-size:0.7rem;color:var(--text-light);">取得エラー</span>'; }
         }
 
-        function renderKBList(bases) {
-            if (!bases || bases.length === 0) {
+        function renderKBList(bases, allGroups) {
+            allGroups = allGroups || [];
+            bases = bases || [];
+
+            if (bases.length === 0 && allGroups.length === 0) {
                 kbSelector.innerHTML = '<span style="font-size:0.7rem;color:var(--text-light);">保存済みナレッジベースなし</span>';
                 return;
             }
@@ -577,35 +583,37 @@
             }
 
             let html = '';
+            // Ensure all groups are in grouped map (even empty ones)
+            for (const g of allGroups) {
+                if (!grouped[g]) grouped[g] = [];
+            }
             // Render groups
             for (const [group, items] of Object.entries(grouped)) {
-                html += `<div style="width:100%;margin-bottom:6px;">
+                html += `<div style="width:100%;margin-bottom:6px;" ondragover="event.preventDefault()" ondrop="dropKB(event,'${group}')">
                     <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:3px;display:flex;align-items:center;gap:4px;">
-                        📂 <span ondblclick="renameGroupUI(this,'${group}')" style="cursor:pointer;">${group}</span>
+                        📂 <span ondblclick="renameGroupUI(this,'${group}')" style="cursor:pointer;" title="ダブルクリックで名前変更">${group}</span>
                         <span style="cursor:pointer;opacity:0.5;font-size:0.6rem;" onclick="deleteGroupUI('${group}')">✕</span>
                     </div>`;
                 for (const kb of items) {
-                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','${kb.group}')">
-                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','${kb.group}')">${kb.name}</span>
+                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','${kb.group}')" style="margin-left:12px;">
+                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','${kb.group}')" title="ダブルクリックで名前変更">${kb.name}</span>
                         <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','${kb.group}')">✕</span>
                     </div>`;
                 }
                 html += `</div>`;
             }
             // Render ungrouped
-            for (const kb of ungrouped) {
-                html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','')">
-                    📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','')">${kb.name}</span>
-                    <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','')">✕</span>
-                </div>`;
+            if (ungrouped.length > 0) {
+                html += `<div style="width:100%;" ondragover="event.preventDefault()" ondrop="dropKB(event,'')">`;
+                for (const kb of ungrouped) {
+                    html += `<div class="kb-chip ${currentKBName === kb.name ? 'active' : ''}" onclick="selectKB('${kb.name}')" draggable="true" ondragstart="dragKB(event,'${kb.name}','')">
+                        📁 <span ondblclick="event.stopPropagation();renameKBUI(this,'${kb.name}','')" title="ダブルクリックで名前変更">${kb.name}</span>
+                        <span class="kb-delete" onclick="event.stopPropagation();deleteKB('${kb.name}','')">✕</span>
+                    </div>`;
+                }
+                html += `</div>`;
             }
             kbSelector.innerHTML = html;
-
-            // Add drop targets to groups
-            document.querySelectorAll('[data-group-drop]').forEach(el => {
-                el.addEventListener('dragover', e => e.preventDefault());
-                el.addEventListener('drop', e => dropKB(e, el.dataset.groupDrop));
-            });
         }
 
         let draggedKB = null;
@@ -620,7 +628,7 @@
                     body: JSON.stringify({ old_name: draggedKB.name, new_name: draggedKB.name, old_group: draggedKB.group, new_group: targetGroup }),
                 });
                 loadKBList();
-            } catch (e) {}
+            } catch (err) {}
             draggedKB = null;
         }
 
