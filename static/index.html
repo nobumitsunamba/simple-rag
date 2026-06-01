@@ -167,11 +167,11 @@
         <aside class="sidebar">
             <div class="sidebar-section">
                 <h2>📁 ナレッジベース</h2>
-                <div style="display:flex;gap:4px;margin-bottom:8px;">
+                <div class="kb-selector" id="kb-selector"><span style="font-size:0.7rem;color:var(--text-light);">読み込み中...</span></div>
+                <div style="display:flex;gap:4px;margin-top:8px;">
                     <input type="text" id="group-name-input" placeholder="新規グループ..." style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:0.65rem;background:var(--input-bg);color:var(--text);" />
                     <button class="btn-sm btn-save" id="group-create-btn" style="font-size:0.6rem;">+グループ</button>
                 </div>
-                <div class="kb-selector" id="kb-selector"><span style="font-size:0.7rem;color:var(--text-light);">読み込み中...</span></div>
                 <div class="kb-save-row">
                     <input type="text" id="kb-name-input" placeholder="名前を付けて保存..." />
                     <button class="btn-sm btn-save" id="kb-save-btn">保存</button>
@@ -516,8 +516,8 @@
             const div = document.createElement('div');
             div.style.cssText = 'align-self:flex-start;display:flex;gap:6px;margin-top:-6px;';
             div.innerHTML = `
-                <button onclick="sendFeedback(this, '👍')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:0.7rem;cursor:pointer;">👍 役立った</button>
-                <button onclick="sendFeedback(this, '👎')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:0.7rem;cursor:pointer;">👎 不十分</button>
+                <button onclick="sendFeedback(this, '👍')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:0.7rem;cursor:pointer;color:var(--text);">👍 役立った</button>
+                <button onclick="sendFeedback(this, '👎')" style="background:none;border:1px solid var(--border);border-radius:12px;padding:3px 8px;font-size:0.7rem;cursor:pointer;color:var(--text);">👎 不十分</button>
             `;
             chatMessages.appendChild(div); scrollToBottom();
         }
