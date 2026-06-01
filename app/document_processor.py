@@ -8,29 +8,54 @@ import re
 from pathlib import Path
 
 import anthropic
-import PyPDF2
+import fitz  # PyMuPDF
 from docx import Document
 from openpyxl import load_workbook
 from pptx import Presentation
 
 
 def extract_text_from_pdf(file_content: bytes) -> tuple[str, dict]:
-    """Extract text from a PDF file with page numbers.
+    """Extract text and images from a PDF file with page numbers.
 
     Returns (full_text, page_map) where page_map maps chunk start positions to page numbers.
     """
-    reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+    doc = fitz.open(stream=file_content, filetype="pdf")
     text_parts = []
-    page_map = {}  # {cumulative_char_position: page_number}
+    page_map = {}
     cumulative_pos = 0
 
-    for i, page in enumerate(reader.pages):
-        page_text = page.extract_text()
-        if page_text:
-            page_map[cumulative_pos] = i + 1
-            text_parts.append(page_text)
-            cumulative_pos += len(page_text) + 2  # +2 for \n\n separator
+    for i, page in enumerate(doc):
+        page_text = page.get_text()
 
+        # Extract images from the page
+        image_descriptions = []
+        for img_index, img in enumerate(page.get_images(full=True)):
+            try:
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]
+                content_type = f"image/{image_ext}" if image_ext in ("png", "jpeg", "gif", "webp") else "image/png"
+
+                # Only process images larger than 5KB (skip tiny icons/decorations)
+                if len(image_bytes) > 5000:
+                    description = _describe_image(image_bytes, content_type)
+                    if description:
+                        image_descriptions.append(f"[ページ{i+1}の画像] {description}")
+            except Exception:
+                pass
+
+        # Combine text and image descriptions
+        combined = page_text
+        if image_descriptions:
+            combined += "\n\n" + "\n\n".join(image_descriptions)
+
+        if combined.strip():
+            page_map[cumulative_pos] = i + 1
+            text_parts.append(combined)
+            cumulative_pos += len(combined) + 2
+
+    doc.close()
     return "\n\n".join(text_parts), page_map
 
 
@@ -78,30 +103,79 @@ def extract_text_from_xlsx(file_content: bytes) -> str:
 
 
 def extract_text_from_pptx(file_content: bytes) -> str:
-    """Extract text and images from a PowerPoint (.pptx) file."""
+    """Extract text, images, and slide summaries from a PowerPoint (.pptx) file."""
     prs = Presentation(io.BytesIO(file_content))
     text_parts = []
 
     for i, slide in enumerate(prs.slides, 1):
-        slide_text = [f"[スライド {i}]"]
+        slide_texts = []
+        slide_images = []
+
         for shape in slide.shapes:
             if shape.has_text_frame:
                 for paragraph in shape.text_frame.paragraphs:
                     if paragraph.text.strip():
-                        slide_text.append(paragraph.text)
+                        slide_texts.append(paragraph.text)
             # Extract images from shapes
             if shape.shape_type == 13:  # Picture
                 try:
                     image = shape.image
-                    description = _describe_image(image.blob, image.content_type)
-                    if description:
-                        slide_text.append(f"[画像の内容] {description}")
+                    if len(image.blob) > 5000:  # Skip tiny images
+                        description = _describe_image(image.blob, image.content_type)
+                        if description:
+                            slide_images.append(description)
                 except Exception:
                     pass
-        if len(slide_text) > 1:
-            text_parts.append("\n".join(slide_text))
+
+        if not slide_texts and not slide_images:
+            continue
+
+        # Build slide content
+        slide_content = f"[スライド {i}]\n"
+        if slide_texts:
+            slide_content += "\n".join(slide_texts)
+        if slide_images:
+            slide_content += "\n[画像の内容] " + " ".join(slide_images)
+
+        # Generate slide intent summary using Claude
+        slide_summary = _summarize_slide(i, slide_texts, slide_images)
+        if slide_summary:
+            slide_content += f"\n[スライドの要点] {slide_summary}"
+
+        text_parts.append(slide_content)
 
     return "\n\n".join(text_parts)
+
+
+def _summarize_slide(slide_num: int, texts: list[str], image_descriptions: list[str]) -> str:
+    """Summarize the intent/meaning of a slide."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+
+    content = ""
+    if texts:
+        content += "テキスト:\n" + "\n".join(texts)
+    if image_descriptions:
+        content += "\n画像の説明:\n" + "\n".join(image_descriptions)
+
+    if not content.strip():
+        return ""
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": f"以下はプレゼンテーションのスライド{slide_num}の内容です。このスライドが伝えたい要点を1〜2文で簡潔に要約してください。\n\n{content}",
+            }],
+            temperature=0,
+        )
+        return response.content[0].text
+    except Exception:
+        return ""
 
 
 def extract_text_from_csv(file_content: bytes) -> str:
