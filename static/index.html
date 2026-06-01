@@ -448,9 +448,18 @@
                             const data = JSON.parse(line.slice(6));
 
                             if (data.type === 'text') {
+                                if (msgDiv.style.fontStyle === 'italic') {
+                                    msgDiv.style.fontStyle = '';
+                                    msgDiv.style.color = '';
+                                    msgDiv.textContent = '';
+                                }
                                 fullContent += data.content;
                                 msgDiv.textContent = fullContent;
                                 scrollToBottom();
+                            } else if (data.type === 'status') {
+                                msgDiv.textContent = data.content;
+                                msgDiv.style.fontStyle = 'italic';
+                                msgDiv.style.color = 'var(--text-muted)';
                             } else if (data.type === 'done') {
                             // Append metadata
                             let meta = '';
