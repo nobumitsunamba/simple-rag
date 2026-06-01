@@ -524,6 +524,18 @@
 
         function sendFeedback(btn, type) {
             const parent = btn.parentElement;
+            // Get the last Q&A from chat history
+            const lastQ = chatHistory.filter(m => m.role === 'user').pop();
+            const lastA = chatHistory.filter(m => m.role === 'assistant').pop();
+            // Send to API
+            fetch('/api/feedback', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: lastQ ? lastQ.content : '',
+                    answer: lastA ? lastA.content : '',
+                    feedback: type === '👍' ? 'positive' : 'negative',
+                }),
+            }).catch(() => {});
             if (type === '👎') {
                 parent.innerHTML = '<span style="font-size:0.7rem;color:var(--text-muted);">💡 質問を変えて再度お試しください</span>';
             } else {

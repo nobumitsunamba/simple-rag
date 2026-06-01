@@ -717,6 +717,25 @@ async def api_get_me(authorization: str = ""):
     return user
 
 
+# --- Feedback ---
+
+class FeedbackRequest(BaseModel):
+    question: str
+    answer: str
+    feedback: str  # "positive" or "negative"
+
+
+@app.post("/api/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """Record user feedback on an answer."""
+    log_event("feedback", details={
+        "question": request.question,
+        "answer_preview": request.answer[:200],
+        "feedback": request.feedback,
+    })
+    return {"message": "フィードバックを記録しました。"}
+
+
 @app.get("/api/file/{filename}")
 async def get_file_url(filename: str):
     """Get a presigned download URL for an uploaded file."""
