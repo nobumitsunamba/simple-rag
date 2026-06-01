@@ -125,14 +125,55 @@ class LoadRequest(BaseModel):
 
 
 def _process_document_background(filename: str, chunk_data: list[dict]):
-    """Process document in background thread."""
+    """Process document chunks in background thread (embedding only)."""
     import time
     global processing_status
     try:
         total_chunks = len(chunk_data)
         processing_status[filename]["message"] = f"埋め込み生成中... (0/{total_chunks}チャンク)"
 
-        # Process in smaller batches to show progress and avoid throttling
+        batch_size = 20
+        total_added = 0
+        for i in range(0, total_chunks, batch_size):
+            batch = chunk_data[i:i + batch_size]
+            chunks = [c["text"] for c in batch]
+            pages = [c["page"] for c in batch]
+            vector_store.add_documents(chunks, filename, pages)
+            total_added += len(batch)
+            processing_status[filename]["chunks_added"] = total_added
+            processing_status[filename]["message"] = f"埋め込み生成中... ({total_added}/{total_chunks}チャンク)"
+
+        processing_status[filename]["status"] = "completed"
+        processing_status[filename]["message"] = f"'{filename}' を処理しました。{total_added}個のチャンクを追加しました。"
+    except Exception as e:
+        processing_status[filename]["status"] = "error"
+        processing_status[filename]["message"] = f"処理中にエラーが発生しました: {str(e)}"
+
+
+def _process_large_file_background(filename: str, content: bytes):
+    """Process a large file entirely in background (extraction + embedding)."""
+    global processing_status
+    try:
+        # Save to S3
+        processing_status[filename]["message"] = "ファイルを保存中..."
+        save_uploaded_file(filename, content)
+
+        # Extract text
+        processing_status[filename]["message"] = "テキスト抽出中..."
+        text, page_map = extract_text_with_pages(filename, content)
+
+        if not text.strip():
+            processing_status[filename]["status"] = "error"
+            processing_status[filename]["message"] = "ファイルからテキストを抽出できませんでした。"
+            return
+
+        # Split into chunks
+        processing_status[filename]["message"] = "チャンク分割中..."
+        chunk_data = split_text_with_pages(text, page_map)
+        total_chunks = len(chunk_data)
+
+        # Embed
+        processing_status[filename]["message"] = f"埋め込み生成中... (0/{total_chunks}チャンク)"
         batch_size = 20
         total_added = 0
         for i in range(0, total_chunks, batch_size):
@@ -167,7 +208,31 @@ async def upload_document(file: UploadFile = File(...)):
 
     try:
         content = await file.read()
+        file_size = len(content)
 
+        # Large files (>2MB): process everything in background
+        if file_size > 2 * 1024 * 1024:
+            processing_status[file.filename] = {
+                "filename": file.filename,
+                "status": "processing",
+                "chunks_added": 0,
+                "message": f"テキスト抽出中...",
+            }
+            thread = threading.Thread(
+                target=_process_large_file_background,
+                args=(file.filename, content),
+                daemon=True,
+            )
+            thread.start()
+
+            return UploadResponse(
+                filename=file.filename,
+                chunks_added=0,
+                message=f"'{file.filename}' の処理をバックグラウンドで開始しました。処理状況は自動更新されます。",
+                status="processing",
+            )
+
+        # Small files: process immediately
         # Save original file to S3 for later download
         save_uploaded_file(file.filename, content)
 
@@ -182,8 +247,8 @@ async def upload_document(file: UploadFile = File(...)):
         chunk_data = split_text_with_pages(text, page_map)
         num_chunks = len(chunk_data)
 
-        if num_chunks > 100:
-            # Large file: process in background
+        if num_chunks > 50:
+            # Medium file: text extracted but embedding in background
             processing_status[file.filename] = {
                 "filename": file.filename,
                 "status": "processing",
