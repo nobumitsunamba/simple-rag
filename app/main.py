@@ -157,7 +157,7 @@ async def upload_document(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="ファイル名が必要です。")
 
-    allowed_extensions = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".csv", ".txt", ".md"}
+    allowed_extensions = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".csv", ".txt", ".md", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed_extensions:
         raise HTTPException(

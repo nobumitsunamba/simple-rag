@@ -1,10 +1,13 @@
-"""Document processing module for PDF, Word, Excel, PowerPoint, text, and CSV files."""
+"""Document processing module for PDF, Word, Excel, PowerPoint, text, CSV, and image files."""
 
+import base64
 import csv
 import io
+import os
 import re
 from pathlib import Path
 
+import anthropic
 import PyPDF2
 from docx import Document
 from openpyxl import load_workbook
@@ -95,6 +98,59 @@ def extract_text_from_text(file_content: bytes) -> str:
     return file_content.decode("utf-8", errors="replace")
 
 
+def extract_text_from_image(file_content: bytes, filename: str) -> str:
+    """Extract text/description from an image using Claude's vision capability."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY が設定されていません。")
+
+    # Determine media type
+    ext = Path(filename).suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+    media_type = media_types.get(ext, "image/png")
+
+    # Encode image to base64
+    image_data = base64.standard_b64encode(file_content).decode("utf-8")
+
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2000,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": image_data,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "この画像の内容を詳細に説明してください。\n"
+                        "テキストが含まれている場合はすべて書き起こしてください。\n"
+                        "図表やグラフの場合は、データや構造を文章で説明してください。\n"
+                        "写真の場合は、写っているものを具体的に説明してください。\n"
+                        "日本語で回答してください。"
+                    ),
+                },
+            ],
+        }],
+        temperature=0,
+    )
+
+    return response.content[0].text
+
+
 def extract_text(filename: str, file_content: bytes) -> str:
     """Extract text from a file based on its extension."""
     suffix = Path(filename).suffix.lower()
@@ -111,6 +167,8 @@ def extract_text(filename: str, file_content: bytes) -> str:
         return extract_text_from_csv(file_content)
     elif suffix in (".txt", ".md", ".markdown"):
         return extract_text_from_text(file_content)
+    elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return extract_text_from_image(file_content, filename)
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
 
@@ -123,6 +181,8 @@ def extract_text_with_pages(filename: str, file_content: bytes) -> tuple[str, di
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
         return extract_text_from_pdf(file_content)
+    elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        return extract_text_from_image(file_content, filename), None
     else:
         return extract_text(filename, file_content), None
 
