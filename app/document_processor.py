@@ -35,12 +35,26 @@ def extract_text_from_pdf(file_content: bytes) -> tuple[str, dict]:
 
 
 def extract_text_from_docx(file_content: bytes) -> str:
-    """Extract text from a Word (.docx) file."""
+    """Extract text and images from a Word (.docx) file."""
     doc = Document(io.BytesIO(file_content))
     text_parts = []
+
+    # Extract text from paragraphs
     for paragraph in doc.paragraphs:
         if paragraph.text.strip():
             text_parts.append(paragraph.text)
+
+    # Extract images and describe them
+    for rel in doc.part.rels.values():
+        if "image" in rel.reltype:
+            try:
+                image_data = rel.target_part.blob
+                description = _describe_image(image_data, rel.target_part.content_type)
+                if description:
+                    text_parts.append(f"[埋め込み画像の内容]\n{description}")
+            except Exception:
+                pass
+
     return "\n\n".join(text_parts)
 
 
@@ -64,7 +78,7 @@ def extract_text_from_xlsx(file_content: bytes) -> str:
 
 
 def extract_text_from_pptx(file_content: bytes) -> str:
-    """Extract text from a PowerPoint (.pptx) file."""
+    """Extract text and images from a PowerPoint (.pptx) file."""
     prs = Presentation(io.BytesIO(file_content))
     text_parts = []
 
@@ -75,6 +89,15 @@ def extract_text_from_pptx(file_content: bytes) -> str:
                 for paragraph in shape.text_frame.paragraphs:
                     if paragraph.text.strip():
                         slide_text.append(paragraph.text)
+            # Extract images from shapes
+            if shape.shape_type == 13:  # Picture
+                try:
+                    image = shape.image
+                    description = _describe_image(image.blob, image.content_type)
+                    if description:
+                        slide_text.append(f"[画像の内容] {description}")
+                except Exception:
+                    pass
         if len(slide_text) > 1:
             text_parts.append("\n".join(slide_text))
 
@@ -96,6 +119,51 @@ def extract_text_from_csv(file_content: bytes) -> str:
 def extract_text_from_text(file_content: bytes) -> str:
     """Extract text from a plain text or markdown file."""
     return file_content.decode("utf-8", errors="replace")
+
+
+def _describe_image(image_data: bytes, content_type: str = "image/png") -> str:
+    """Describe an image using Claude's vision capability. Used internally."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return ""
+
+    # Normalize content type
+    if "/" not in content_type:
+        content_type = f"image/{content_type}"
+    # Ensure supported type
+    supported = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+    if content_type not in supported:
+        content_type = "image/png"
+
+    image_b64 = base64.standard_b64encode(image_data).decode("utf-8")
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": content_type,
+                            "data": image_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "この画像の内容を簡潔に説明してください。テキストがあればすべて書き起こしてください。日本語で回答してください。",
+                    },
+                ],
+            }],
+            temperature=0,
+        )
+        return response.content[0].text
+    except Exception:
+        return ""
 
 
 def extract_text_from_image(file_content: bytes, filename: str) -> str:
