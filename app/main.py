@@ -150,7 +150,7 @@ def _process_document_background(filename: str, chunk_data: list[dict]):
         processing_status[filename]["message"] = f"処理中にエラーが発生しました: {str(e)}"
 
 
-def _process_large_file_background(filename: str, content: bytes):
+def _process_large_file_background(filename: str, content: bytes, analyze_images: bool = False):
     """Process a large file entirely in background (extraction + embedding)."""
     global processing_status
     try:
@@ -160,7 +160,7 @@ def _process_large_file_background(filename: str, content: bytes):
 
         # Extract text
         processing_status[filename]["message"] = "テキスト抽出中..."
-        text, page_map = extract_text_with_pages(filename, content)
+        text, page_map = extract_text_with_pages(filename, content, analyze_images)
 
         if not text.strip():
             processing_status[filename]["status"] = "error"
@@ -193,7 +193,7 @@ def _process_large_file_background(filename: str, content: bytes):
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), analyze_images: bool = False):
     """Upload a PDF or Word document for processing."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="ファイル名が必要です。")
@@ -220,7 +220,7 @@ async def upload_document(file: UploadFile = File(...)):
             }
             thread = threading.Thread(
                 target=_process_large_file_background,
-                args=(file.filename, content),
+                args=(file.filename, content, analyze_images),
                 daemon=True,
             )
             thread.start()
@@ -236,7 +236,7 @@ async def upload_document(file: UploadFile = File(...)):
         # Save original file to S3 for later download
         save_uploaded_file(file.filename, content)
 
-        text, page_map = extract_text_with_pages(file.filename, content)
+        text, page_map = extract_text_with_pages(file.filename, content, analyze_images)
 
         if not text.strip():
             raise HTTPException(

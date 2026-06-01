@@ -189,6 +189,9 @@
                     <p class="formats">PDF / Word / Excel / PowerPoint / CSV / テキスト / 画像</p>
                 </div>
                 <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.csv,.txt,.md,.png,.jpg,.jpeg,.gif,.webp" />
+                <label style="display:flex;align-items:center;gap:4px;margin-top:6px;font-size:0.7rem;color:var(--text-muted);cursor:pointer;">
+                    <input type="checkbox" id="analyze-images-check" /> 画像も解析する（処理時間が長くなります）
+                </label>
                 <div class="upload-progress" id="upload-progress">
                     <div class="progress-bar"><div class="progress-bar-fill"></div></div>
                     <div class="upload-status" id="upload-status">アップロード中...</div>
@@ -291,8 +294,10 @@
             uploadStatus.textContent = `${file.name} をアップロード中...`;
             const formData = new FormData();
             formData.append('file', file);
+            const analyzeImages = document.getElementById('analyze-images-check').checked;
+            const url = analyzeImages ? '/api/upload?analyze_images=true' : '/api/upload';
             try {
-                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const res = await fetch(url, { method: 'POST', body: formData });
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
                 const data = await res.json();
                 if (data.status === 'processing') {

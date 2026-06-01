@@ -14,8 +14,8 @@ from openpyxl import load_workbook
 from pptx import Presentation
 
 
-def extract_text_from_pdf(file_content: bytes) -> tuple[str, dict]:
-    """Extract text and images from a PDF file with page numbers.
+def extract_text_from_pdf(file_content: bytes, analyze_images: bool = False) -> tuple[str, dict]:
+    """Extract text and optionally images from a PDF file with page numbers.
 
     Returns (full_text, page_map) where page_map maps chunk start positions to page numbers.
     """
@@ -27,23 +27,24 @@ def extract_text_from_pdf(file_content: bytes) -> tuple[str, dict]:
     for i, page in enumerate(doc):
         page_text = page.get_text()
 
-        # Extract images from the page
+        # Extract images from the page (only if enabled)
         image_descriptions = []
-        for img_index, img in enumerate(page.get_images(full=True)):
-            try:
-                xref = img[0]
-                base_image = doc.extract_image(xref)
-                image_bytes = base_image["image"]
-                image_ext = base_image["ext"]
-                content_type = f"image/{image_ext}" if image_ext in ("png", "jpeg", "gif", "webp") else "image/png"
+        if analyze_images:
+            for img_index, img in enumerate(page.get_images(full=True)):
+                try:
+                    xref = img[0]
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    content_type = f"image/{image_ext}" if image_ext in ("png", "jpeg", "gif", "webp") else "image/png"
 
-                # Only process images larger than 5KB (skip tiny icons/decorations)
-                if len(image_bytes) > 5000:
-                    description = _describe_image(image_bytes, content_type)
-                    if description:
-                        image_descriptions.append(f"[ページ{i+1}の画像] {description}")
-            except Exception:
-                pass
+                    # Only process images larger than 50KB (skip icons/decorations)
+                    if len(image_bytes) > 50000:
+                        description = _describe_image(image_bytes, content_type)
+                        if description:
+                            image_descriptions.append(f"[ページ{i+1}の画像] {description}")
+                except Exception:
+                    pass
 
         # Combine text and image descriptions
         combined = page_text
@@ -59,8 +60,8 @@ def extract_text_from_pdf(file_content: bytes) -> tuple[str, dict]:
     return "\n\n".join(text_parts), page_map
 
 
-def extract_text_from_docx(file_content: bytes) -> str:
-    """Extract text and images from a Word (.docx) file."""
+def extract_text_from_docx(file_content: bytes, analyze_images: bool = False) -> str:
+    """Extract text and optionally images from a Word (.docx) file."""
     doc = Document(io.BytesIO(file_content))
     text_parts = []
 
@@ -69,16 +70,18 @@ def extract_text_from_docx(file_content: bytes) -> str:
         if paragraph.text.strip():
             text_parts.append(paragraph.text)
 
-    # Extract images and describe them
-    for rel in doc.part.rels.values():
-        if "image" in rel.reltype:
-            try:
-                image_data = rel.target_part.blob
-                description = _describe_image(image_data, rel.target_part.content_type)
-                if description:
-                    text_parts.append(f"[埋め込み画像の内容]\n{description}")
-            except Exception:
-                pass
+    # Extract images and describe them (only if enabled)
+    if analyze_images:
+        for rel in doc.part.rels.values():
+            if "image" in rel.reltype:
+                try:
+                    image_data = rel.target_part.blob
+                    if len(image_data) > 50000:  # Skip small images
+                        description = _describe_image(image_data, rel.target_part.content_type)
+                        if description:
+                            text_parts.append(f"[埋め込み画像の内容]\n{description}")
+                except Exception:
+                    pass
 
     return "\n\n".join(text_parts)
 
@@ -102,8 +105,8 @@ def extract_text_from_xlsx(file_content: bytes) -> str:
     return "\n\n".join(text_parts)
 
 
-def extract_text_from_pptx(file_content: bytes) -> str:
-    """Extract text, images, and slide summaries from a PowerPoint (.pptx) file."""
+def extract_text_from_pptx(file_content: bytes, analyze_images: bool = False) -> str:
+    """Extract text, optionally images, and slide summaries from a PowerPoint (.pptx) file."""
     prs = Presentation(io.BytesIO(file_content))
     text_parts = []
 
@@ -116,11 +119,11 @@ def extract_text_from_pptx(file_content: bytes) -> str:
                 for paragraph in shape.text_frame.paragraphs:
                     if paragraph.text.strip():
                         slide_texts.append(paragraph.text)
-            # Extract images from shapes
-            if shape.shape_type == 13:  # Picture
+            # Extract images from shapes (only if enabled)
+            if analyze_images and shape.shape_type == 13:  # Picture
                 try:
                     image = shape.image
-                    if len(image.blob) > 5000:  # Skip tiny images
+                    if len(image.blob) > 50000:  # Skip small images
                         description = _describe_image(image.blob, image.content_type)
                         if description:
                             slide_images.append(description)
@@ -137,10 +140,11 @@ def extract_text_from_pptx(file_content: bytes) -> str:
         if slide_images:
             slide_content += "\n[画像の内容] " + " ".join(slide_images)
 
-        # Generate slide intent summary using Claude
-        slide_summary = _summarize_slide(i, slide_texts, slide_images)
-        if slide_summary:
-            slide_content += f"\n[スライドの要点] {slide_summary}"
+        # Generate slide intent summary using Claude (only if enabled)
+        if analyze_images:
+            slide_summary = _summarize_slide(i, slide_texts, slide_images)
+            if slide_summary:
+                slide_content += f"\n[スライドの要点] {slide_summary}"
 
         text_parts.append(slide_content)
 
@@ -293,18 +297,18 @@ def extract_text_from_image(file_content: bytes, filename: str) -> str:
     return response.content[0].text
 
 
-def extract_text(filename: str, file_content: bytes) -> str:
+def extract_text(filename: str, file_content: bytes, analyze_images: bool = False) -> str:
     """Extract text from a file based on its extension."""
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
-        text, _ = extract_text_from_pdf(file_content)
+        text, _ = extract_text_from_pdf(file_content, analyze_images)
         return text
     elif suffix in (".docx", ".doc"):
-        return extract_text_from_docx(file_content)
+        return extract_text_from_docx(file_content, analyze_images)
     elif suffix in (".xlsx", ".xls"):
         return extract_text_from_xlsx(file_content)
     elif suffix == ".pptx":
-        return extract_text_from_pptx(file_content)
+        return extract_text_from_pptx(file_content, analyze_images)
     elif suffix == ".csv":
         return extract_text_from_csv(file_content)
     elif suffix in (".txt", ".md", ".markdown"):
@@ -315,18 +319,18 @@ def extract_text(filename: str, file_content: bytes) -> str:
         raise ValueError(f"Unsupported file type: {suffix}")
 
 
-def extract_text_with_pages(filename: str, file_content: bytes) -> tuple[str, dict | None]:
+def extract_text_with_pages(filename: str, file_content: bytes, analyze_images: bool = False) -> tuple[str, dict | None]:
     """Extract text with page mapping (only for PDF).
 
     Returns (text, page_map). page_map is None for non-PDF files.
     """
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
-        return extract_text_from_pdf(file_content)
+        return extract_text_from_pdf(file_content, analyze_images)
     elif suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
         return extract_text_from_image(file_content, filename), None
     else:
-        return extract_text(filename, file_content), None
+        return extract_text(filename, file_content, analyze_images), None
 
 
 def _split_into_sentences(text: str) -> list[str]:
