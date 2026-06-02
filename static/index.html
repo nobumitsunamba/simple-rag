@@ -248,6 +248,7 @@
         let currentKBName = '';
         let currentKBGroup = '';
         let hasUnsavedChanges = false;
+        let lastConfidence = 0;
 
         // Show user email in header
         document.getElementById('user-badge').textContent = localStorage.getItem('user_email') || '';
@@ -427,7 +428,7 @@
             try {
                 const res = await fetch('/api/chat/stream', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question, conversation_id: conversationId }),
+                    body: JSON.stringify({ question, conversation_id: conversationId, user_email: localStorage.getItem('user_email') || '' }),
                 });
 
                 if (!res.ok) { const err = await res.json(); throw new Error(err.detail); }
@@ -466,6 +467,7 @@
                                 msgDiv.style.fontStyle = 'italic';
                                 msgDiv.style.color = 'var(--text-muted)';
                             } else if (data.type === 'done') {
+                            lastConfidence = data.confidence;
                             // Append metadata
                             let meta = '';
                             if (data.confidence >= 70) meta += `\n\n✅ 確信度: ${data.confidence}%`;
@@ -534,6 +536,8 @@
                     question: lastQ ? lastQ.content : '',
                     answer: lastA ? lastA.content : '',
                     feedback: type === '👍' ? 'positive' : 'negative',
+                    user_email: localStorage.getItem('user_email') || '',
+                    confidence: lastConfidence,
                 }),
             }).catch(() => {});
             if (type === '👎') {

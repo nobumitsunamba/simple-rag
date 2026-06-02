@@ -78,6 +78,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     question: str
     conversation_id: str = "default"
+    user_email: str = ""
 
 
 class ChatResponse(BaseModel):
@@ -419,7 +420,7 @@ async def chat_stream(request: ChatRequest):
                 rag_engine.conversations[conv_id] = history[-(rag_engine.max_history * 2):]
 
             # Log
-            log_event("chat_stream", details={"question": request.question, "confidence": confidence})
+            log_event("chat_stream", user_email=request.user_email, details={"question": request.question, "confidence": confidence})
 
             # Send done event with metadata
             yield f"data: {json_module.dumps({'type': 'done', 'sources': sources, 'confidence': confidence}, ensure_ascii=False)}\n\n"
@@ -723,15 +724,18 @@ class FeedbackRequest(BaseModel):
     question: str
     answer: str
     feedback: str  # "positive" or "negative"
+    user_email: str = ""
+    confidence: float = 0
 
 
 @app.post("/api/feedback")
 async def submit_feedback(request: FeedbackRequest):
     """Record user feedback on an answer."""
-    log_event("feedback", details={
+    log_event("feedback", user_email=request.user_email, details={
         "question": request.question,
         "answer_preview": request.answer[:200],
         "feedback": request.feedback,
+        "confidence": request.confidence,
     })
     return {"message": "フィードバックを記録しました。"}
 
